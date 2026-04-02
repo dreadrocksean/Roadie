@@ -1,0 +1,107 @@
+export type GeoPointLite = {
+  lat: number;
+  lng: number;
+};
+
+export type VenueLocation = {
+  address?: string;
+  formatted_address?: string;
+  locality?: string;
+  region?: string;
+  postcode?: string;
+};
+
+export type Venue = {
+  id: string;
+  name?: string;
+  phone?: string;
+  latitude?: number;
+  longitude?: number;
+  geocodes?: {
+    main?: {
+      latitude?: number;
+      longitude?: number;
+    };
+  };
+  location?: VenueLocation;
+};
+
+export type Artist = {
+  id: string;
+  name?: string;
+  phone?: string;
+};
+
+export type RoadieApplicant = {
+  uid: string;
+  status: "accepted" | "awarded" | "declined";
+  displayName?: string;
+  email?: string;
+  phone?: string;
+  acceptedAt?: unknown;
+};
+
+export type ShowDoc = {
+  id: string;
+  path: string;
+  artistId?: string;
+  artistUserId?: string;
+  venueId?: string;
+  roadies?: boolean;
+  totalRoadies?: number;
+  bookedRoadies?: number;
+  roadiesBooked?: number;
+  loadInTime?: unknown;
+  loadOutTime?: unknown;
+  scheduledStart?: unknown;
+  scheduledStop?: unknown;
+  venueName?: string;
+  venueAddress?: string;
+  bandName?: string;
+  artistName?: string;
+  bandPhone?: string;
+  contactPhone?: string;
+  roadiePay?: number;
+  payAmount?: number;
+  artistFee?: number;
+  lat?: number;
+  lng?: number;
+  location?: {
+    lat?: number;
+    lng?: number;
+    latitude?: number;
+    longitude?: number;
+  } | null;
+  roadieApplicants?: Record<string, RoadieApplicant>;
+  awardedRoadieUids?: string[];
+  roadieAwardedUids?: string[];
+  [key: string]: unknown;
+};
+
+export type HydratedShow = ShowDoc & {
+  venue: Venue | null;
+  artist: Artist | null;
+  coordinates: GeoPointLite | null;
+  requiredRoadies: number;
+  distanceMiles: number | null;
+};
+
+export type UserProfile = {
+  uid: string;
+  email?: string | null;
+  displayName?: string | null;
+  phone?: string | null;
+  photoURL?: string | null;
+};
+
+export type RootStackParamList = {
+  Tabs: undefined;
+  Login: undefined;
+  Profile: undefined;
+};
+
+export type TabsParamList = {
+  Map: undefined;
+  Jobs: undefined;
+  Admin: undefined;
+};
