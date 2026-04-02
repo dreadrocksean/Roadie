@@ -24,7 +24,12 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.dreadrocksean.roadie"
+      "package": "com.dreadrocksean.roadie",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -34,6 +39,12 @@
       "expo-image-picker",
       "expo-location",
       "expo-web-browser"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "15cf7376-204e-4399-97de-80ed71fb84de"
+      }
+    },
+    "owner": "dreadrocksean"
   }
 }
