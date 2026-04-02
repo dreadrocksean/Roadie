@@ -3,6 +3,7 @@ import { useNavigation } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useState } from "react";
+import { Image, Pressable, StyleSheet } from "react-native";
 import { Menu } from "react-native-paper";
 
 import { logout } from "../lib/firebase";
@@ -14,6 +15,7 @@ import ProfileScreen from "../screens/ProfileScreen";
 import { useRoadieStore } from "../store/useRoadieStore";
 import type { RootStackParamList, TabsParamList } from "../types";
 import type { NavigationProp } from "@react-navigation/native";
+import roadieLogo from "../../assets/images/logo.png";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tabs = createBottomTabNavigator<TabsParamList>();
@@ -22,6 +24,12 @@ const TAB_ICON_BY_ROUTE: Record<keyof TabsParamList, keyof typeof MaterialCommun
   Jobs: "briefcase-outline",
   Admin: "chart-line",
 };
+
+const HeaderLogo = ({ onPress }: { onPress: () => void }) => (
+  <Pressable onPress={onPress} style={styles.logoPressable} testID="header-logo-button">
+    <Image source={roadieLogo} style={styles.logoImage} />
+  </Pressable>
+);
 
 const HeaderMenu = () => {
   const [visible, setVisible] = useState(false);
@@ -68,7 +76,8 @@ const HeaderMenu = () => {
 const MainTabs = () => (
   <Tabs.Navigator
     initialRouteName="Map"
-    screenOptions={({ route }) => ({
+    screenOptions={({ route, navigation }) => ({
+      headerLeft: () => <HeaderLogo onPress={() => navigation.navigate("Map")} />,
       headerRight: () => <HeaderMenu />,
       tabBarActiveTintColor: "#D62E2E",
       tabBarInactiveTintColor: "#64748B",
@@ -96,22 +105,42 @@ const RootNavigator = () => (
     <Stack.Screen
       name="Login"
       component={LoginScreen}
-      options={{
+      options={({ navigation }) => ({
         title: "Login",
         presentation: "modal",
+        headerLeft: () => (
+          <HeaderLogo onPress={() => navigation.navigate("Tabs", { screen: "Map" })} />
+        ),
         headerRight: () => <HeaderMenu />,
-      }}
+      })}
     />
     <Stack.Screen
       name="Profile"
       component={ProfileScreen}
-      options={{
+      options={({ navigation }) => ({
         title: "Profile",
         presentation: "modal",
+        headerLeft: () => (
+          <HeaderLogo onPress={() => navigation.navigate("Tabs", { screen: "Map" })} />
+        ),
         headerRight: () => <HeaderMenu />,
-      }}
+      })}
     />
   </Stack.Navigator>
 );
+
+const styles = StyleSheet.create({
+  logoPressable: {
+    marginLeft: 10,
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  logoImage: {
+    width: "100%",
+    height: "100%",
+  },
+});
 
 export default RootNavigator;

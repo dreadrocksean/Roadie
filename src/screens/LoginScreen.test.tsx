@@ -17,6 +17,10 @@ jest.mock("expo-web-browser", () => ({
   maybeCompleteAuthSession: jest.fn(),
 }));
 
+jest.mock("@expo/vector-icons", () => ({
+  MaterialCommunityIcons: () => null,
+}));
+
 jest.mock("expo-constants", () => ({
   expoConfig: {
     extra: {
@@ -159,6 +163,30 @@ describe("LoginScreen", () => {
     await waitFor(() => {
       expect(promptAsync).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it("shows google prompt launch errors", async () => {
+    const promptAsync = jest.fn(async () => {
+      throw new Error("Prompt failed");
+    });
+    useIdTokenAuthRequestMock.mockReturnValue([{ id: "request" }, null, promptAsync]);
+
+    const { getByTestId, findByText } = render(<LoginScreen />);
+    fireEvent.press(getByTestId("google-submit"));
+
+    expect(await findByText("Prompt failed")).toBeTruthy();
+  });
+
+  it("falls back google prompt launch errors for unknown values", async () => {
+    const promptAsync = jest.fn(async () => {
+      throw "prompt-failed";
+    });
+    useIdTokenAuthRequestMock.mockReturnValue([{ id: "request" }, null, promptAsync]);
+
+    const { getByTestId, findByText } = render(<LoginScreen />);
+    fireEvent.press(getByTestId("google-submit"));
+
+    expect(await findByText("Google sign-in failed.")).toBeTruthy();
   });
 
   it("handles google success response", async () => {

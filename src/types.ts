@@ -95,7 +95,7 @@ export type UserProfile = {
 };
 
 export type RootStackParamList = {
-  Tabs: undefined;
+  Tabs: NavigatorScreenParams<TabsParamList> | undefined;
   Login: undefined;
   Profile: undefined;
 };
@@ -105,3 +105,4 @@ export type TabsParamList = {
   Jobs: undefined;
   Admin: undefined;
 };
+import type { NavigatorScreenParams } from "@react-navigation/native";

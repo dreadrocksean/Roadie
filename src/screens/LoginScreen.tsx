@@ -1,3 +1,4 @@
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import * as AppleAuthentication from "expo-apple-authentication";
 import * as Crypto from "expo-crypto";
@@ -11,7 +12,7 @@ import {
   signInWithEmailAndPassword,
 } from "firebase/auth";
 import { useEffect, useState } from "react";
-import { Platform, StyleSheet, Text, TextInput, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Button } from "react-native-paper";
 
 import { FIREBASE_AUTH } from "../lib/firebase";
@@ -24,6 +25,42 @@ const getConfigValue = (primary?: string, fallback?: string) => {
   const second = fallback?.trim();
   return second || undefined;
 };
+
+type SocialLoginButtonProps = {
+  icon: "google" | "apple";
+  label: string;
+  onPress: () => void;
+  disabled: boolean;
+  testID: string;
+  variant: "light" | "dark";
+};
+
+const SocialLoginButton = ({
+  icon,
+  label,
+  onPress,
+  disabled,
+  testID,
+  variant,
+}: SocialLoginButtonProps) => (
+  <Pressable
+    onPress={onPress}
+    disabled={disabled}
+    style={[styles.socialAuthButton, variant === "dark" ? styles.socialAuthButtonDark : styles.socialAuthButtonLight]}
+    testID={testID}
+  >
+    <View style={styles.socialAuthContent}>
+      <MaterialCommunityIcons
+        name={icon}
+        size={20}
+        color={variant === "dark" ? "#FFFFFF" : "#111827"}
+      />
+      <Text style={[styles.socialAuthLabel, variant === "dark" ? styles.socialAuthLabelDark : styles.socialAuthLabelLight]}>
+        {label}
+      </Text>
+    </View>
+  </Pressable>
+);
 
 const LoginScreen = () => {
   const [email, setEmail] = useState("");
@@ -126,7 +163,11 @@ const LoginScreen = () => {
       return;
     }
 
-    await googlePromptAsync();
+    try {
+      await googlePromptAsync();
+    } catch (authError) {
+      setError(authError instanceof Error ? authError.message : "Google sign-in failed.");
+    }
   };
 
   const handleAppleSignIn = async () => {
@@ -205,14 +246,24 @@ const LoginScreen = () => {
         {isSignup ? "Sign Up" : "Log In"}
       </Button>
 
-      <Button onPress={handleGoogleSignIn} disabled={loading} style={styles.socialButton} testID="google-submit">
-        Continue with Google
-      </Button>
+      <SocialLoginButton
+        icon="google"
+        label="Continue with Google"
+        onPress={handleGoogleSignIn}
+        disabled={loading}
+        testID="google-submit"
+        variant="light"
+      />
 
       {Platform.OS === "ios" ? (
-        <Button onPress={handleAppleSignIn} disabled={loading} style={styles.socialButton} testID="apple-submit">
-          Continue with Apple
-        </Button>
+        <SocialLoginButton
+          icon="apple"
+          label="Continue with Apple"
+          onPress={handleAppleSignIn}
+          disabled={loading}
+          testID="apple-submit"
+          variant="dark"
+        />
       ) : null}
 
       <Button onPress={() => setIsSignup((prev) => !prev)} disabled={loading} testID="toggle-signup">
@@ -244,8 +295,35 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     marginBottom: 10,
   },
-  socialButton: {
+  socialAuthButton: {
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     marginTop: 8,
+  },
+  socialAuthButtonLight: {
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#D0D5DD",
+  },
+  socialAuthButtonDark: {
+    backgroundColor: "#101820",
+  },
+  socialAuthContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  socialAuthLabel: {
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  socialAuthLabelLight: {
+    color: "#111827",
+  },
+  socialAuthLabelDark: {
+    color: "#FFFFFF",
   },
   errorText: {
     color: "#B42323",

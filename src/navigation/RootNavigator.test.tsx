@@ -100,13 +100,35 @@ describe("RootNavigator", () => {
   it("renders tab root", () => {
     bindStore({ user: null });
 
-    const { getByText } = render(
+    const { getByText, getByTestId } = render(
       <NavigationContainer>
         <RootNavigator />
       </NavigationContainer>,
     );
 
     expect(getByText("MAP_SCREEN")).toBeTruthy();
+    expect(getByTestId("header-logo-button")).toBeTruthy();
+  });
+
+  it("navigates back to map when logo is pressed", async () => {
+    bindStore({ user: null });
+
+    const { getByText, getByTestId } = render(
+      <NavigationContainer>
+        <RootNavigator />
+      </NavigationContainer>,
+    );
+
+    fireEvent.press(getByText("Jobs"));
+    await waitFor(() => {
+      expect(getByText("JOBS_SCREEN")).toBeTruthy();
+    });
+
+    fireEvent.press(getByTestId("header-logo-button"));
+
+    await waitFor(() => {
+      expect(getByText("MAP_SCREEN")).toBeTruthy();
+    });
   });
 
   it("navigates to login from hamburger menu", async () => {
@@ -123,6 +145,30 @@ describe("RootNavigator", () => {
 
     await waitFor(() => {
       expect(getByText("LOGIN_SCREEN")).toBeTruthy();
+    });
+  });
+
+  it("navigates home from login modal logo", async () => {
+    bindStore({ user: null });
+
+    const { getByTestId, getByText, getAllByTestId, queryByText } = render(
+      <NavigationContainer>
+        <RootNavigator />
+      </NavigationContainer>,
+    );
+
+    fireEvent.press(getByTestId("header-menu-button"));
+    fireEvent.press(getByTestId("menu-item-Login"));
+
+    await waitFor(() => {
+      expect(getByText("LOGIN_SCREEN")).toBeTruthy();
+    });
+
+    fireEvent.press(getAllByTestId("header-logo-button").at(-1)!);
+
+    await waitFor(() => {
+      expect(getByText("MAP_SCREEN")).toBeTruthy();
+      expect(queryByText("LOGIN_SCREEN")).toBeNull();
     });
   });
 
@@ -147,6 +193,30 @@ describe("RootNavigator", () => {
 
     await waitFor(() => {
       expect(logout).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("navigates home from profile modal logo", async () => {
+    bindStore({ user: { uid: "u1" } });
+
+    const { getByTestId, getByText, getAllByTestId, queryByText } = render(
+      <NavigationContainer>
+        <RootNavigator />
+      </NavigationContainer>,
+    );
+
+    fireEvent.press(getByTestId("header-menu-button"));
+    fireEvent.press(getByTestId("menu-item-Profile"));
+
+    await waitFor(() => {
+      expect(getByText("PROFILE_SCREEN")).toBeTruthy();
+    });
+
+    fireEvent.press(getAllByTestId("header-logo-button").at(-1)!);
+
+    await waitFor(() => {
+      expect(getByText("MAP_SCREEN")).toBeTruthy();
+      expect(queryByText("PROFILE_SCREEN")).toBeNull();
     });
   });
 
