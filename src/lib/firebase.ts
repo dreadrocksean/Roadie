@@ -66,18 +66,31 @@ export const logout = async () => {
 export const ensureUserDocument = async (user: User) => {
   const userRef = doc(FIRESTORE_DB, "users", user.uid);
   const existing = await getDoc(userRef);
+  const existingData = existing.exists() ? existing.data() : {};
 
   if (existing.exists()) {
     await setDoc(
       userRef,
       {
         email: user.email ?? "",
-        displayName: user.displayName ?? existing.data().displayName ?? "",
+        displayName: user.displayName ?? existingData.displayName ?? "",
         updatedAt: serverTimestamp(),
       },
       { merge: true },
     );
-    return;
+
+    const refreshed = await getDoc(userRef);
+    const data = refreshed.exists() ? refreshed.data() : existingData;
+
+    return {
+      displayName:
+        typeof data.displayName === "string" ? data.displayName : (user.displayName ?? null),
+      phone: typeof data.phone === "string" ? data.phone : (user.phoneNumber ?? null),
+      bio: typeof data.bio === "string" ? data.bio : null,
+      address: typeof data.address === "string" ? data.address : null,
+      photoURL: typeof data.photoURL === "string" ? data.photoURL : (user.photoURL ?? null),
+      roadieId: typeof data.roadieId === "string" ? data.roadieId : null,
+    };
   }
 
   await setDoc(
@@ -92,6 +105,15 @@ export const ensureUserDocument = async (user: User) => {
     },
     { merge: true },
   );
+
+  return {
+    displayName: user.displayName ?? null,
+    phone: user.phoneNumber ?? null,
+    bio: null,
+    address: null,
+    photoURL: user.photoURL ?? null,
+    roadieId: null,
+  };
 };
 
 export {

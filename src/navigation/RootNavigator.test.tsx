@@ -97,8 +97,22 @@ describe("RootNavigator", () => {
     jest.clearAllMocks();
   });
 
-  it("renders tab root", () => {
+  it("renders login root when user is signed out", () => {
     bindStore({ user: null });
+
+    const { getByText, queryByTestId } = render(
+      <NavigationContainer>
+        <RootNavigator />
+      </NavigationContainer>,
+    );
+
+    expect(getByText("LOGIN_SCREEN")).toBeTruthy();
+    expect(queryByTestId("header-logo-button")).toBeNull();
+    expect(queryByTestId("header-menu-button")).toBeNull();
+  });
+
+  it("renders tab root for signed in user", () => {
+    bindStore({ user: { uid: "u1", roadieId: "r1" } });
 
     const { getByText, getByTestId } = render(
       <NavigationContainer>
@@ -110,8 +124,20 @@ describe("RootNavigator", () => {
     expect(getByTestId("header-logo-button")).toBeTruthy();
   });
 
+  it("renders profile root when signed in user is missing roadie id", () => {
+    bindStore({ user: { uid: "u1", roadieId: null } });
+
+    const { getByText } = render(
+      <NavigationContainer>
+        <RootNavigator />
+      </NavigationContainer>,
+    );
+
+    expect(getByText("PROFILE_SCREEN")).toBeTruthy();
+  });
+
   it("navigates back to map when logo is pressed", async () => {
-    bindStore({ user: null });
+    bindStore({ user: { uid: "u1", roadieId: "r1" } });
 
     const { getByText, getByTestId } = render(
       <NavigationContainer>
@@ -131,49 +157,8 @@ describe("RootNavigator", () => {
     });
   });
 
-  it("navigates to login from hamburger menu", async () => {
-    bindStore({ user: null });
-
-    const { getByTestId, getByText } = render(
-      <NavigationContainer>
-        <RootNavigator />
-      </NavigationContainer>,
-    );
-
-    fireEvent.press(getByTestId("header-menu-button"));
-    fireEvent.press(getByTestId("menu-item-Login"));
-
-    await waitFor(() => {
-      expect(getByText("LOGIN_SCREEN")).toBeTruthy();
-    });
-  });
-
-  it("navigates home from login modal logo", async () => {
-    bindStore({ user: null });
-
-    const { getByTestId, getByText, getAllByTestId, queryByText } = render(
-      <NavigationContainer>
-        <RootNavigator />
-      </NavigationContainer>,
-    );
-
-    fireEvent.press(getByTestId("header-menu-button"));
-    fireEvent.press(getByTestId("menu-item-Login"));
-
-    await waitFor(() => {
-      expect(getByText("LOGIN_SCREEN")).toBeTruthy();
-    });
-
-    fireEvent.press(getAllByTestId("header-logo-button").at(-1)!);
-
-    await waitFor(() => {
-      expect(getByText("MAP_SCREEN")).toBeTruthy();
-      expect(queryByText("LOGIN_SCREEN")).toBeNull();
-    });
-  });
-
   it("navigates to profile and can logout when user exists", async () => {
-    bindStore({ user: { uid: "u1" } });
+    bindStore({ user: { uid: "u1", roadieId: "r1" } });
 
     const { getByTestId, getByText } = render(
       <NavigationContainer>
@@ -197,7 +182,7 @@ describe("RootNavigator", () => {
   });
 
   it("navigates home from profile modal logo", async () => {
-    bindStore({ user: { uid: "u1" } });
+    bindStore({ user: { uid: "u1", roadieId: "r1" } });
 
     const { getByTestId, getByText, getAllByTestId, queryByText } = render(
       <NavigationContainer>
@@ -221,7 +206,7 @@ describe("RootNavigator", () => {
   });
 
   it("dismisses menu without navigation", async () => {
-    bindStore({ user: null });
+    bindStore({ user: { uid: "u1", roadieId: "r1" } });
 
     const { getByTestId, queryByTestId } = render(
       <NavigationContainer>

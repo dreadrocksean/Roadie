@@ -91,7 +91,10 @@ export type UserProfile = {
   email?: string | null;
   displayName?: string | null;
   phone?: string | null;
+  bio?: string | null;
+  address?: string | null;
   photoURL?: string | null;
+  roadieId?: string | null;
 };
 
 export type RootStackParamList = {

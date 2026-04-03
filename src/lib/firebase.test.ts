@@ -127,7 +127,7 @@ describe("firebase lib", () => {
       displayName: "Roadie One",
     } as any);
 
-    expect(mocks.getDoc).toHaveBeenCalledTimes(1);
+    expect(mocks.getDoc).toHaveBeenCalledTimes(2);
     expect(mocks.setDoc).toHaveBeenCalledWith(
       { path: "users/user-1" },
       expect.objectContaining({

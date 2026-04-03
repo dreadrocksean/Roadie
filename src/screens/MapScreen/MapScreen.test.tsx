@@ -3,9 +3,9 @@ import { fireEvent, render, waitFor } from "@testing-library/react-native";
 import { Modal } from "react-native";
 
 import MapScreen from "./MapScreen";
-import { useRoadieStore } from "../store/useRoadieStore";
+import { useRoadieStore } from "../../store/useRoadieStore";
 
-jest.mock("../store/useRoadieStore", () => ({
+jest.mock("../../store/useRoadieStore", () => ({
   useRoadieStore: jest.fn(),
 }));
 
@@ -31,7 +31,8 @@ const makeState = (overrides: Record<string, unknown> = {}) => ({
   error: null,
   setSelectedShow: jest.fn(),
   initializeLocation: jest.fn(async () => undefined),
-  refreshShows: jest.fn(async () => undefined),
+  startShowsListener: jest.fn(async () => undefined),
+  stopShowsListener: jest.fn(),
   acceptSelectedShow: jest.fn(async () => true),
   ...overrides,
 });
@@ -47,16 +48,19 @@ describe("MapScreen", () => {
     jest.clearAllMocks();
   });
 
-  it("boots location and refresh on mount", async () => {
+  it("boots location and starts listener on mount, then stops on unmount", async () => {
     const state = makeState();
     bindStore(state);
 
-    render(<MapScreen />);
+    const { unmount } = render(<MapScreen />);
 
     await waitFor(() => {
       expect(state.initializeLocation).toHaveBeenCalledTimes(1);
-      expect(state.refreshShows).toHaveBeenCalledTimes(1);
+      expect(state.startShowsListener).toHaveBeenCalledTimes(1);
     });
+
+    unmount();
+    expect(state.stopShowsListener).toHaveBeenCalledTimes(1);
   });
 
   it("renders no-show banner and errors", () => {
@@ -117,7 +121,6 @@ describe("MapScreen", () => {
       shows: [selectedShow],
       setSelectedShow: jest.fn(),
       acceptSelectedShow: jest.fn(async () => true),
-      refreshShows: jest.fn(async () => undefined),
     });
     bindStore(state);
 
@@ -130,7 +133,6 @@ describe("MapScreen", () => {
 
     await waitFor(() => {
       expect(state.acceptSelectedShow).toHaveBeenCalledTimes(1);
-      expect(state.refreshShows).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -198,15 +200,10 @@ describe("MapScreen", () => {
       shows: [selectedShow],
       setSelectedShow: jest.fn(),
       acceptSelectedShow: jest.fn(async () => false),
-      refreshShows: jest.fn(async () => undefined),
     });
     bindStore(state);
 
     const { getByText, UNSAFE_getByType } = render(<MapScreen />);
-
-    await waitFor(() => {
-      expect(state.refreshShows).toHaveBeenCalledTimes(1);
-    });
 
     const modal = UNSAFE_getByType(Modal);
     modal.props.onRequestClose();
@@ -216,7 +213,6 @@ describe("MapScreen", () => {
 
     await waitFor(() => {
       expect(state.acceptSelectedShow).toHaveBeenCalledTimes(1);
-      expect(state.refreshShows).toHaveBeenCalledTimes(1);
     });
   });
 });

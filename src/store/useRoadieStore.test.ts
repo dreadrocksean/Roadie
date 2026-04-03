@@ -1,8 +1,10 @@
 import * as Location from "expo-location";
 
 import { sendLocalAwardNotification } from "../services/pushNotifications";
-import { acceptRoadieJob, fetchRoadieShows } from "../services/roadie";
+import { acceptRoadieJob, fetchRoadieShows, subscribeRoadieShows } from "../services/roadie";
 import { useRoadieStore } from "./useRoadieStore";
+
+let mockIsDevice = true;
 
 jest.mock("expo-location", () => ({
   Accuracy: {
@@ -12,8 +14,15 @@ jest.mock("expo-location", () => ({
   getCurrentPositionAsync: jest.fn(),
 }));
 
+jest.mock("expo-device", () => ({
+  get isDevice() {
+    return mockIsDevice;
+  },
+}));
+
 jest.mock("../services/roadie", () => ({
   fetchRoadieShows: jest.fn(),
+  subscribeRoadieShows: jest.fn(),
   acceptRoadieJob: jest.fn(async () => undefined),
 }));
 
@@ -24,8 +33,10 @@ jest.mock("../services/pushNotifications", () => ({
 const requestForegroundPermissionsAsyncMock = Location.requestForegroundPermissionsAsync as jest.Mock;
 const getCurrentPositionAsyncMock = Location.getCurrentPositionAsync as jest.Mock;
 const fetchRoadieShowsMock = fetchRoadieShows as jest.Mock;
+const subscribeRoadieShowsMock = subscribeRoadieShows as jest.Mock;
 const acceptRoadieJobMock = acceptRoadieJob as jest.Mock;
 const sendLocalAwardNotificationMock = sendLocalAwardNotification as jest.Mock;
+let consoleErrorSpy: jest.SpyInstance;
 
 const resetStore = () => {
   useRoadieStore.setState({
@@ -38,6 +49,7 @@ const resetStore = () => {
     selectedShow: null,
     acceptedShowPaths: [],
     awardedShowPaths: [],
+    showsUnsubscribe: null,
     error: null,
   });
 };
@@ -45,7 +57,13 @@ const resetStore = () => {
 describe("useRoadieStore", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockIsDevice = true;
+    consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => undefined);
     resetStore();
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
   });
 
   it("initializes default location when permission is denied", async () => {
@@ -55,6 +73,17 @@ describe("useRoadieStore", () => {
 
     expect(location).toEqual({ lat: 41.8781, lng: -87.6298 });
     expect(useRoadieStore.getState().locationError).toContain("Location permission denied");
+  });
+
+  it("initializes Kansas City location on simulator builds", async () => {
+    mockIsDevice = false;
+
+    const location = await useRoadieStore.getState().initializeLocation();
+
+    expect(location).toEqual({ lat: 39.0997, lng: -94.5786 });
+    expect(useRoadieStore.getState().locationError).toBeNull();
+    expect(requestForegroundPermissionsAsyncMock).not.toHaveBeenCalled();
+    expect(getCurrentPositionAsyncMock).not.toHaveBeenCalled();
   });
 
   it("initializes live location when permission is granted", async () => {
@@ -99,6 +128,11 @@ describe("useRoadieStore", () => {
     ]);
 
     await useRoadieStore.getState().refreshShows();
+    expect(fetchRoadieShowsMock).toHaveBeenCalledWith(
+      { lat: 41.8781, lng: -87.6298 },
+      30,
+      expect.objectContaining({ includeVenueDetails: true, includeArtistDetails: true }),
+    );
 
     expect(useRoadieStore.getState().awardedShowPaths).toEqual(["artists/a/shows/s1"]);
     expect(useRoadieStore.getState().acceptedShowPaths).toEqual([
@@ -118,6 +152,147 @@ describe("useRoadieStore", () => {
 
     expect(useRoadieStore.getState().error).toBe("boom");
     expect(useRoadieStore.getState().isLoadingShows).toBe(false);
+  });
+
+  it("starts a realtime shows listener and applies updates", async () => {
+    useRoadieStore.getState().setUser({ uid: "u1" });
+
+    let onShows: ((shows: any[]) => Promise<void> | void) | undefined;
+    const unsubscribeMock = jest.fn();
+
+    subscribeRoadieShowsMock.mockImplementation((_center, _radius, callback) => {
+      onShows = callback;
+      return unsubscribeMock;
+    });
+
+    await useRoadieStore.getState().startShowsListener();
+
+    expect(subscribeRoadieShowsMock).toHaveBeenCalledWith(
+      { lat: 41.8781, lng: -87.6298 },
+      30,
+      expect.any(Function),
+      expect.any(Function),
+      expect.objectContaining({ includeVenueDetails: true, includeArtistDetails: true }),
+    );
+    expect(useRoadieStore.getState().showsUnsubscribe).toBe(unsubscribeMock);
+    expect(useRoadieStore.getState().isLoadingShows).toBe(true);
+
+    await onShows?.([
+      {
+        id: "live-1",
+        path: "artists/a/shows/live-1",
+        requiredRoadies: 1,
+        distanceMiles: 1,
+        venue: { id: "v1", name: "Live Venue" },
+        artist: null,
+        coordinates: { lat: 1, lng: 1 },
+        roadieApplicants: { u1: { uid: "u1", status: "awarded" } },
+      },
+    ]);
+
+    expect(useRoadieStore.getState().shows).toHaveLength(1);
+    expect(useRoadieStore.getState().awardedShowPaths).toEqual(["artists/a/shows/live-1"]);
+    expect(useRoadieStore.getState().acceptedShowPaths).toEqual(["artists/a/shows/live-1"]);
+    expect(sendLocalAwardNotificationMock).toHaveBeenCalledWith("Live Venue");
+    expect(useRoadieStore.getState().isLoadingShows).toBe(false);
+  });
+
+  it("initializes location before starting listener when location is missing", async () => {
+    requestForegroundPermissionsAsyncMock.mockResolvedValueOnce({ status: "granted" });
+    getCurrentPositionAsyncMock.mockResolvedValueOnce({
+      coords: { latitude: 39.95, longitude: -75.16 },
+    });
+    subscribeRoadieShowsMock.mockReturnValue(jest.fn());
+
+    useRoadieStore.setState({ location: null as any });
+
+    await useRoadieStore.getState().startShowsListener();
+
+    expect(subscribeRoadieShowsMock).toHaveBeenCalledWith(
+      { lat: 39.95, lng: -75.16 },
+      30,
+      expect.any(Function),
+      expect.any(Function),
+      expect.objectContaining({ includeVenueDetails: true, includeArtistDetails: true }),
+    );
+  });
+
+  it("stops an existing shows listener before starting a new one", async () => {
+    const firstUnsubscribe = jest.fn();
+    const secondUnsubscribe = jest.fn();
+
+    subscribeRoadieShowsMock
+      .mockReturnValueOnce(firstUnsubscribe)
+      .mockReturnValueOnce(secondUnsubscribe);
+
+    await useRoadieStore.getState().startShowsListener();
+    await useRoadieStore.getState().startShowsListener();
+
+    expect(firstUnsubscribe).toHaveBeenCalledTimes(1);
+    expect(useRoadieStore.getState().showsUnsubscribe).toBe(secondUnsubscribe);
+  });
+
+  it("stores listener errors from realtime subscription callbacks", async () => {
+    subscribeRoadieShowsMock.mockImplementation((_center, _radius, _onShows, onError) => {
+      onError?.(new Error("listener-error"));
+      return jest.fn();
+    });
+
+    await useRoadieStore.getState().startShowsListener();
+
+    expect(useRoadieStore.getState().error).toBe("listener-error");
+    expect(useRoadieStore.getState().isLoadingShows).toBe(false);
+  });
+
+  it("stores fallback listener callback errors for non-error values", async () => {
+    subscribeRoadieShowsMock.mockImplementation((_center, _radius, _onShows, onError) => {
+      onError?.("listener-non-error" as unknown as Error);
+      return jest.fn();
+    });
+
+    await useRoadieStore.getState().startShowsListener();
+
+    expect(useRoadieStore.getState().error).toBe("Failed to listen for roadie shows.");
+    expect(useRoadieStore.getState().isLoadingShows).toBe(false);
+  });
+
+  it("stores listener setup error messages for Error values", async () => {
+    subscribeRoadieShowsMock.mockImplementation(() => {
+      throw new Error("listener-setup-error");
+    });
+
+    await useRoadieStore.getState().startShowsListener();
+
+    expect(useRoadieStore.getState().error).toBe("listener-setup-error");
+    expect(useRoadieStore.getState().isLoadingShows).toBe(false);
+  });
+
+  it("stores fallback listener errors when subscription setup throws", async () => {
+    subscribeRoadieShowsMock.mockImplementation(() => {
+      throw "listener-setup-failed";
+    });
+
+    await useRoadieStore.getState().startShowsListener();
+
+    expect(useRoadieStore.getState().error).toBe("Failed to listen for roadie shows.");
+    expect(useRoadieStore.getState().isLoadingShows).toBe(false);
+  });
+
+  it("stops and clears the realtime shows listener", async () => {
+    const unsubscribeMock = jest.fn();
+    useRoadieStore.setState({ showsUnsubscribe: unsubscribeMock });
+
+    useRoadieStore.getState().stopShowsListener();
+
+    expect(unsubscribeMock).toHaveBeenCalledTimes(1);
+    expect(useRoadieStore.getState().showsUnsubscribe).toBeNull();
+  });
+
+  it("no-ops when stopping listener without an active subscription", () => {
+    useRoadieStore.setState({ showsUnsubscribe: null });
+    useRoadieStore.getState().stopShowsListener();
+
+    expect(useRoadieStore.getState().showsUnsubscribe).toBeNull();
   });
 
   it("requires login before accepting a selected show", async () => {
@@ -237,7 +412,11 @@ describe("useRoadieStore", () => {
 
     await useRoadieStore.getState().refreshShows();
 
-    expect(fetchRoadieShowsMock).toHaveBeenCalledWith({ lat: 36.2, lng: -86.7 }, 30);
+    expect(fetchRoadieShowsMock).toHaveBeenCalledWith(
+      { lat: 36.2, lng: -86.7 },
+      30,
+      expect.objectContaining({ includeVenueDetails: true, includeArtistDetails: true }),
+    );
     expect(useRoadieStore.getState().awardedShowPaths).toEqual([]);
     expect(useRoadieStore.getState().acceptedShowPaths).toEqual([]);
   });

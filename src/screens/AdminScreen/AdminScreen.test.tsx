@@ -2,9 +2,9 @@ import React from "react";
 import { render } from "@testing-library/react-native";
 
 import AdminScreen from "./AdminScreen";
-import { useRoadieStore } from "../store/useRoadieStore";
+import { useRoadieStore } from "../../store/useRoadieStore";
 
-jest.mock("../store/useRoadieStore", () => ({
+jest.mock("../../store/useRoadieStore", () => ({
   useRoadieStore: jest.fn(),
 }));
 

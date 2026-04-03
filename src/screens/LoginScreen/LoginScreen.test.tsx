@@ -1,5 +1,5 @@
 import React from "react";
-import { fireEvent, render, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 import Constants from "expo-constants";
 import { Platform } from "react-native";
 
@@ -12,6 +12,15 @@ import {
 } from "firebase/auth";
 import * as Google from "expo-auth-session/providers/google";
 import * as AppleAuthentication from "expo-apple-authentication";
+
+const mockNavigate = jest.fn();
+const mockNavigation = {
+  navigate: mockNavigate,
+};
+
+jest.mock("@react-navigation/native", () => ({
+  useNavigation: () => mockNavigation,
+}));
 
 jest.mock("expo-web-browser", () => ({
   maybeCompleteAuthSession: jest.fn(),
@@ -41,6 +50,7 @@ jest.mock("expo-apple-authentication", () => ({
     FULL_NAME: "full_name",
     EMAIL: "email",
   },
+  isAvailableAsync: jest.fn(async () => true),
   signInAsync: jest.fn(),
 }));
 
@@ -66,7 +76,7 @@ jest.mock("firebase/auth", () => ({
   })),
 }));
 
-jest.mock("../lib/firebase", () => ({
+jest.mock("../../lib/firebase", () => ({
   FIREBASE_AUTH: { currentUser: null },
 }));
 
@@ -75,12 +85,16 @@ const createUserWithEmailAndPasswordMock = createUserWithEmailAndPassword as jes
 const signInWithEmailAndPasswordMock = signInWithEmailAndPassword as jest.Mock;
 const signInWithCredentialMock = signInWithCredential as jest.Mock;
 const signInAsyncMock = AppleAuthentication.signInAsync as jest.Mock;
+const isAvailableAsyncMock = AppleAuthentication.isAvailableAsync as jest.Mock;
+let consoleErrorSpy: jest.SpyInstance;
 
 describe("LoginScreen", () => {
   const originalPlatform = Platform.OS;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockNavigate.mockClear();
+    consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => undefined);
     Object.defineProperty(Platform, "OS", { value: originalPlatform });
     (Constants as any).expoConfig = {
       extra: {
@@ -94,11 +108,16 @@ describe("LoginScreen", () => {
     delete process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
     delete process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID;
     delete process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+    isAvailableAsyncMock.mockResolvedValue(true);
     useIdTokenAuthRequestMock.mockReturnValue([
       { id: "request" },
       null,
       jest.fn(async () => ({ type: "success" })),
     ]);
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
   });
 
   it("validates required email and password", async () => {
@@ -122,6 +141,7 @@ describe("LoginScreen", () => {
         "user@example.com",
         "password123",
       );
+      expect(mockNavigate).toHaveBeenCalledWith("Tabs", { screen: "Map" });
     });
   });
 
@@ -139,6 +159,7 @@ describe("LoginScreen", () => {
         "new@example.com",
         "password123",
       );
+      expect(mockNavigate).toHaveBeenCalledWith("Tabs", { screen: "Map" });
     });
   });
 
@@ -205,6 +226,7 @@ describe("LoginScreen", () => {
     await waitFor(() => {
       expect(mockGoogleCredential).toHaveBeenCalledWith("id-token", "access-token");
       expect(signInWithCredentialMock).toHaveBeenCalledWith(expect.anything(), "google-credential");
+      expect(mockNavigate).toHaveBeenCalledWith("Tabs", { screen: "Map" });
     });
   });
 
@@ -244,6 +266,17 @@ describe("LoginScreen", () => {
     expect(await findByText("Apple sign-in did not return an identity token.")).toBeTruthy();
   });
 
+  it("shows apple unavailable message when sign-in is not supported on device", async () => {
+    Object.defineProperty(Platform, "OS", { value: "ios" });
+    isAvailableAsyncMock.mockResolvedValueOnce(false);
+
+    const { getByTestId, findByText } = render(<LoginScreen />);
+    fireEvent.press(getByTestId("apple-submit"));
+
+    expect(await findByText("Apple sign-in is unavailable on this simulator/device.")).toBeTruthy();
+    expect(signInAsyncMock).not.toHaveBeenCalled();
+  });
+
   it("ignores canceled apple login errors", async () => {
     Object.defineProperty(Platform, "OS", { value: "ios" });
     signInAsyncMock.mockRejectedValueOnce({ code: "ERR_CANCELLED" });
@@ -272,6 +305,7 @@ describe("LoginScreen", () => {
         rawNonce: "010203",
       });
       expect(signInWithCredentialMock).toHaveBeenCalledWith(expect.anything(), "apple-credential");
+      expect(mockNavigate).toHaveBeenCalledWith("Tabs", { screen: "Map" });
     });
   });
 
@@ -414,6 +448,56 @@ describe("LoginScreen", () => {
     fireEvent.press(getByTestId("apple-submit"));
 
     expect(await findByText("Apple exploded")).toBeTruthy();
+  });
+
+  it("shows apple capability message when Apple auth is not enabled in build", async () => {
+    Object.defineProperty(Platform, "OS", { value: "ios" });
+    signInAsyncMock.mockRejectedValueOnce({ code: "ERR_INVALID_OPERATION" });
+
+    const { getByTestId, findByText } = render(<LoginScreen />);
+    fireEvent.press(getByTestId("apple-submit"));
+
+    expect(
+      await findByText("Apple sign-in is not enabled in this build. Rebuild the iOS dev client."),
+    ).toBeTruthy();
+  });
+
+  it("shows firebase operation-not-allowed message for Apple sign-in", async () => {
+    Object.defineProperty(Platform, "OS", { value: "ios" });
+    signInAsyncMock.mockRejectedValueOnce({ code: "auth/operation-not-allowed" });
+
+    const { getByTestId, findByText } = render(<LoginScreen />);
+    fireEvent.press(getByTestId("apple-submit"));
+
+    expect(await findByText("Apple sign-in is disabled in Firebase Auth.")).toBeTruthy();
+  });
+
+  it("shows timeout guidance when apple sign-in never resolves", async () => {
+    Object.defineProperty(Platform, "OS", { value: "ios" });
+    jest.useFakeTimers();
+    signInAsyncMock.mockImplementationOnce(() => new Promise(() => undefined));
+
+    try {
+      const { getByTestId, findByText } = render(<LoginScreen />);
+      fireEvent.press(getByTestId("apple-submit"));
+
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      await act(async () => {
+        jest.advanceTimersByTime(20000);
+      });
+
+      expect(
+        await findByText(
+          "Apple sign-in timed out. On simulator, sign in to an Apple ID in Settings and try again.",
+        ),
+      ).toBeTruthy();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it("falls back apple sign-in error for unknown values", async () => {

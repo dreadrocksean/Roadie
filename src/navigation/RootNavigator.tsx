@@ -3,7 +3,7 @@ import { useNavigation } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useState } from "react";
-import { Image, Pressable, StyleSheet } from "react-native";
+import { Image, Pressable } from "react-native";
 import { Menu } from "react-native-paper";
 
 import { logout } from "../lib/firebase";
@@ -13,21 +13,31 @@ import LoginScreen from "../screens/LoginScreen";
 import MapScreen from "../screens/MapScreen";
 import ProfileScreen from "../screens/ProfileScreen";
 import { useRoadieStore } from "../store/useRoadieStore";
+import { palette } from "../theme/colors";
 import type { RootStackParamList, TabsParamList } from "../types";
 import type { NavigationProp } from "@react-navigation/native";
 import roadieLogo from "../../assets/images/logo.png";
 
+import styles from "./styles";
+
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tabs = createBottomTabNavigator<TabsParamList>();
-const TAB_ICON_BY_ROUTE: Record<keyof TabsParamList, keyof typeof MaterialCommunityIcons.glyphMap> = {
+const TAB_ICON_BY_ROUTE: Record<
+  keyof TabsParamList,
+  keyof typeof MaterialCommunityIcons.glyphMap
+> = {
   Map: "music-note-eighth",
   Jobs: "briefcase-outline",
   Admin: "chart-line",
 };
 
 const HeaderLogo = ({ onPress }: { onPress: () => void }) => (
-  <Pressable onPress={onPress} style={styles.logoPressable} testID="header-logo-button">
-    <Image source={roadieLogo} style={styles.logoImage} />
+  <Pressable
+    onPress={onPress}
+    style={styles.logoPressable}
+    testID="header-logo-button"
+  >
+    <Image source={roadieLogo} style={styles.logoImage} resizeMode="contain" />
   </Pressable>
 );
 
@@ -59,7 +69,7 @@ const HeaderMenu = () => {
         <MaterialCommunityIcons
           name="menu"
           size={24}
-          color="#101820"
+          color={palette.white}
           style={{ marginRight: 10 }}
           onPress={() => setVisible(true)}
           testID="header-menu-button"
@@ -77,12 +87,24 @@ const MainTabs = () => (
   <Tabs.Navigator
     initialRouteName="Map"
     screenOptions={({ route, navigation }) => ({
-      headerLeft: () => <HeaderLogo onPress={() => navigation.navigate("Map")} />,
+      headerLeft: () => (
+        <HeaderLogo onPress={() => navigation.navigate("Map")} />
+      ),
       headerRight: () => <HeaderMenu />,
-      tabBarActiveTintColor: "#D62E2E",
-      tabBarInactiveTintColor: "#64748B",
+      headerStyle: { backgroundColor: palette.black },
+      headerTintColor: palette.white,
+      tabBarStyle: {
+        backgroundColor: palette.black,
+        borderTopColor: palette.gray700,
+      },
+      tabBarActiveTintColor: palette.accentRed,
+      tabBarInactiveTintColor: palette.gray300,
       tabBarIcon: ({ color, size }) => (
-        <MaterialCommunityIcons name={TAB_ICON_BY_ROUTE[route.name]} size={size} color={color} />
+        <MaterialCommunityIcons
+          name={TAB_ICON_BY_ROUTE[route.name]}
+          size={size}
+          color={color}
+        />
       ),
     })}
   >
@@ -92,55 +114,77 @@ const MainTabs = () => (
   </Tabs.Navigator>
 );
 
-const RootNavigator = () => (
-  <Stack.Navigator>
-    <Stack.Screen
-      name="Tabs"
-      component={MainTabs}
-      options={{
-        title: "Roadie",
-        headerShown: false,
-      }}
-    />
-    <Stack.Screen
-      name="Login"
-      component={LoginScreen}
-      options={({ navigation }) => ({
-        title: "Login",
-        presentation: "modal",
-        headerLeft: () => (
-          <HeaderLogo onPress={() => navigation.navigate("Tabs", { screen: "Map" })} />
-        ),
-        headerRight: () => <HeaderMenu />,
-      })}
-    />
-    <Stack.Screen
-      name="Profile"
-      component={ProfileScreen}
-      options={({ navigation }) => ({
-        title: "Profile",
-        presentation: "modal",
-        headerLeft: () => (
-          <HeaderLogo onPress={() => navigation.navigate("Tabs", { screen: "Map" })} />
-        ),
-        headerRight: () => <HeaderMenu />,
-      })}
-    />
-  </Stack.Navigator>
-);
+const GuardedTabs = () => {
+  const user = useRoadieStore((state) => state.user);
 
-const styles = StyleSheet.create({
-  logoPressable: {
-    marginLeft: 10,
-    width: 34,
-    height: 34,
-    borderRadius: 8,
-    overflow: "hidden",
-  },
-  logoImage: {
-    width: "100%",
-    height: "100%",
-  },
-});
+  if (!user) {
+    return <LoginScreen />;
+  }
+
+  if (!user.roadieId) {
+    return <ProfileScreen />;
+  }
+
+  return <MainTabs />;
+};
+
+const RootNavigator = () => {
+  const user = useRoadieStore((state) => state.user);
+  const isAuthenticated = Boolean(user);
+  const hasRoadieId = Boolean(user?.roadieId);
+  const startRoute = !isAuthenticated
+    ? "Login"
+    : hasRoadieId
+      ? "Tabs"
+      : "Profile";
+  const navigatorKey = !isAuthenticated
+    ? "guest"
+    : hasRoadieId
+      ? "auth-complete"
+      : "auth-missing-roadie";
+
+  return (
+    <Stack.Navigator key={navigatorKey} initialRouteName={startRoute}>
+      <Stack.Screen
+        name="Tabs"
+        component={GuardedTabs}
+        options={{
+          title: "Roadie",
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="Login"
+        component={LoginScreen}
+        options={({ navigation }) => ({
+          title: "Login",
+          presentation: isAuthenticated ? "modal" : "card",
+          headerLeft: isAuthenticated
+            ? () => (
+                <HeaderLogo
+                  onPress={() => navigation.navigate("Tabs", { screen: "Map" })}
+                />
+              )
+            : undefined,
+          headerRight: isAuthenticated ? () => <HeaderMenu /> : undefined,
+        })}
+      />
+      <Stack.Screen
+        name="Profile"
+        component={ProfileScreen}
+        options={({ navigation }) => ({
+          title: "Profile",
+          presentation: "modal",
+          headerLeft: () => (
+            <HeaderLogo
+              onPress={() => navigation.navigate("Tabs", { screen: "Map" })}
+            />
+          ),
+          headerRight: () => <HeaderMenu />,
+        })}
+      />
+    </Stack.Navigator>
+  );
+};
 
 export default RootNavigator;

@@ -3,11 +3,28 @@ import { fireEvent, render, waitFor } from "@testing-library/react-native";
 import * as ImagePicker from "expo-image-picker";
 
 import ProfileScreen from "./ProfileScreen";
-import { getDownloadURL, setDoc, uploadBytes } from "../lib/firebase";
-import { useRoadieStore } from "../store/useRoadieStore";
+import { getDownloadURL, setDoc, uploadBytes } from "../../lib/firebase";
+import { useRoadieStore } from "../../store/useRoadieStore";
 
-jest.mock("../store/useRoadieStore", () => ({
+const mockGoBack = jest.fn();
+const mockNavigate = jest.fn();
+const mockDispatch = jest.fn();
+const mockCanGoBack = jest.fn(() => true);
+
+jest.mock("../../store/useRoadieStore", () => ({
   useRoadieStore: jest.fn(),
+}));
+
+jest.mock("@react-navigation/native", () => ({
+  CommonActions: {
+    reset: jest.fn((payload: unknown) => ({ type: "RESET", payload })),
+  },
+  useNavigation: () => ({
+    goBack: mockGoBack,
+    navigate: mockNavigate,
+    dispatch: mockDispatch,
+    canGoBack: mockCanGoBack,
+  }),
 }));
 
 jest.mock("expo-image-picker", () => ({
@@ -15,10 +32,24 @@ jest.mock("expo-image-picker", () => ({
   launchImageLibraryAsync: jest.fn(),
 }));
 
-jest.mock("../lib/firebase", () => ({
+jest.mock("../../lib/firebase", () => ({
   FIREBASE_STORAGE: { id: "storage" },
   FIRESTORE_DB: { id: "db" },
-  doc: jest.fn((_db, ...segments: string[]) => ({ path: segments.join("/") })),
+  collection: jest.fn((_db, path: string) => ({ path })),
+  doc: jest.fn((...args: any[]) => {
+    if (args.length === 1 && args[0]?.path) {
+      return {
+        id: "generated-roadie-id",
+        path: `${args[0].path}/generated-roadie-id`,
+      };
+    }
+
+    const [_db, ...segments] = args;
+    return {
+      id: segments[segments.length - 1] ?? "generated-roadie-id",
+      path: segments.join("/"),
+    };
+  }),
   ref: jest.fn((_storage, path: string) => ({ path })),
   serverTimestamp: jest.fn(() => "ts"),
   uploadBytes: jest.fn(async () => undefined),
@@ -41,6 +72,7 @@ describe("ProfileScreen", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockCanGoBack.mockReturnValue(true);
     global.fetch = jest.fn(async () => ({ blob: async () => "blob" as any })) as any;
   });
 
@@ -60,11 +92,37 @@ describe("ProfileScreen", () => {
     expect(getByText(/Log in from the top-right menu/)).toBeTruthy();
   });
 
+  it("closes to previous screen when close is pressed", () => {
+    bindStore({
+      user: { uid: "u1", roadieId: "r1" },
+      setUserProfile: jest.fn(),
+    });
+
+    const { getByTestId } = render(<ProfileScreen />);
+    fireEvent.press(getByTestId("profile-close"));
+
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes to tabs map when no previous screen exists", () => {
+    mockCanGoBack.mockReturnValueOnce(false);
+
+    bindStore({
+      user: { uid: "u1", roadieId: "r1" },
+      setUserProfile: jest.fn(),
+    });
+
+    const { getByTestId } = render(<ProfileScreen />);
+    fireEvent.press(getByTestId("profile-close"));
+
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
+  });
+
   it("saves profile updates", async () => {
     const setUserProfileMock = jest.fn();
 
     bindStore({
-      user: { uid: "u1", displayName: "Old", phone: "111", photoURL: null },
+      user: { uid: "u1", email: "u1@example.com", displayName: "Old", phone: "111", photoURL: null },
       setUserProfile: setUserProfileMock,
     });
 
@@ -72,14 +130,56 @@ describe("ProfileScreen", () => {
 
     fireEvent.changeText(getByPlaceholderText("Display name"), "New Name");
     fireEvent.changeText(getByPlaceholderText("Phone"), "222");
+    fireEvent.changeText(getByPlaceholderText("Bio"), "Road veteran");
+    fireEvent.changeText(getByPlaceholderText("Address"), "123 Main St");
     fireEvent.press(getByText("Save Profile"));
 
     await waitFor(() => {
-      expect(setDoc).toHaveBeenCalledTimes(1);
+      expect(setDoc).toHaveBeenCalledWith(
+        expect.objectContaining({ path: "roadies/generated-roadie-id" }),
+        expect.objectContaining({
+          userId: "u1",
+          email: "u1@example.com",
+          displayName: "New Name",
+          phone: "222",
+          bio: "Road veteran",
+          address: "123 Main St",
+        }),
+        { merge: true },
+      );
+      expect(setDoc).toHaveBeenCalledWith(
+        expect.objectContaining({ path: "users/u1" }),
+        expect.objectContaining({
+          displayName: "New Name",
+          phone: "222",
+          bio: "Road veteran",
+          address: "123 Main St",
+          roadieId: "generated-roadie-id",
+        }),
+        { merge: true },
+      );
       expect(setUserProfileMock).toHaveBeenCalledWith(
-        expect.objectContaining({ displayName: "New Name", phone: "222" }),
+        expect.objectContaining({
+          displayName: "New Name",
+          phone: "222",
+          bio: "Road veteran",
+          address: "123 Main St",
+          roadieId: "generated-roadie-id",
+        }),
       );
     });
+  });
+
+  it("shows update profile label when roadie id already exists", () => {
+    bindStore({
+      user: { uid: "u1", roadieId: "r1" },
+      setUserProfile: jest.fn(),
+    });
+
+    const { getByText, queryByText } = render(<ProfileScreen />);
+
+    expect(getByText("Update Profile")).toBeTruthy();
+    expect(queryByText("Save Profile")).toBeNull();
   });
 
   it("handles denied media permission", async () => {
@@ -132,9 +232,37 @@ describe("ProfileScreen", () => {
     fireEvent.press(getByText("Upload Photo"));
 
     await waitFor(() => {
+      expect(setDoc).not.toHaveBeenCalled();
       expect(uploadBytes).toHaveBeenCalledTimes(1);
+      expect(uploadBytes).toHaveBeenCalledWith(
+        expect.objectContaining({ path: "roadies/u1/profileImage.jpg" }),
+        "blob",
+      );
       expect(getDownloadURL).toHaveBeenCalledTimes(1);
       expect(getByText("Profile photo updated.")).toBeTruthy();
+    });
+  });
+
+  it("stores profile image under existing roadie id path", async () => {
+    bindStore({
+      user: { uid: "u1", roadieId: "r99" },
+      setUserProfile: jest.fn(),
+    });
+
+    requestMediaLibraryPermissionsAsyncMock.mockResolvedValueOnce({ granted: true });
+    launchImageLibraryAsyncMock.mockResolvedValueOnce({
+      canceled: false,
+      assets: [{ uri: "file://image.jpg" }],
+    });
+
+    const { getByText } = render(<ProfileScreen />);
+    fireEvent.press(getByText("Upload Photo"));
+
+    await waitFor(() => {
+      expect(uploadBytes).toHaveBeenCalledWith(
+        expect.objectContaining({ path: "roadies/u1/profileImage.jpg" }),
+        "blob",
+      );
     });
   });
 

@@ -1,0 +1,16 @@
+export const palette = {
+  black: "#0B0B0B",
+  white: "#FFFFFF",
+  gray50: "#F6F6F6",
+  gray100: "#ECECEC",
+  gray200: "#D9D9D9",
+  gray300: "#BFBFBF",
+  gray500: "#737373",
+  gray700: "#3B3B3B",
+  gray900: "#171717",
+  accentRed: "#D62E2E",
+  accentRedSoft: "rgba(214,46,46,0.12)",
+  accentBlue: "#1C6CFF",
+  overlayDark: "rgba(0,0,0,0.35)",
+  overlayLight: "rgba(255,255,255,0.65)",
+} as const;

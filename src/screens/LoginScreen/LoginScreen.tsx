@@ -11,19 +11,51 @@ import {
   signInWithCredential,
   signInWithEmailAndPassword,
 } from "firebase/auth";
-import { useEffect, useState } from "react";
-import { Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useNavigation } from "@react-navigation/native";
+import { useCallback, useEffect, useState } from "react";
+import { Platform, Pressable, Text, TextInput, View } from "react-native";
 import { Button } from "react-native-paper";
 
-import { FIREBASE_AUTH } from "../lib/firebase";
+import { FIREBASE_AUTH } from "../../lib/firebase";
+import { palette } from "../../theme/colors";
+import type { RootStackParamList } from "../../types";
+import type { NavigationProp } from "@react-navigation/native";
+import styles from "./styles";
 
 WebBrowser.maybeCompleteAuthSession();
+const APPLE_SIGN_IN_TIMEOUT_MS = 20000;
 
 const getConfigValue = (primary?: string, fallback?: string) => {
   const first = primary?.trim();
   if (first) return first;
   const second = fallback?.trim();
   return second || undefined;
+};
+
+const getErrorCode = (error: unknown) => (error as { code?: string } | null)?.code;
+const isAppleCancelledError = (error: unknown) => {
+  const code = getErrorCode(error);
+  if (code === "ERR_CANCELED" || code === "ERR_CANCELLED" || code === "CANCELLED") {
+    return true;
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  return /cancel/i.test(message);
+};
+
+const withTimeout = async <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<T>((_resolve, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${ms}ms`));
+    }, ms);
+  });
+
+  try {
+    return (await Promise.race([promise, timeoutPromise])) as T;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 };
 
 type SocialLoginButtonProps = {
@@ -46,16 +78,24 @@ const SocialLoginButton = ({
   <Pressable
     onPress={onPress}
     disabled={disabled}
-    style={[styles.socialAuthButton, variant === "dark" ? styles.socialAuthButtonDark : styles.socialAuthButtonLight]}
+    style={[
+      styles.socialAuthButton,
+      variant === "dark" ? styles.socialAuthButtonDark : styles.socialAuthButtonLight,
+    ]}
     testID={testID}
   >
     <View style={styles.socialAuthContent}>
       <MaterialCommunityIcons
         name={icon}
         size={20}
-        color={variant === "dark" ? "#FFFFFF" : "#111827"}
+        color={variant === "dark" ? palette.black : palette.white}
       />
-      <Text style={[styles.socialAuthLabel, variant === "dark" ? styles.socialAuthLabelDark : styles.socialAuthLabelLight]}>
+      <Text
+        style={[
+          styles.socialAuthLabel,
+          variant === "dark" ? styles.socialAuthLabelDark : styles.socialAuthLabelLight,
+        ]}
+      >
         {label}
       </Text>
     </View>
@@ -63,6 +103,7 @@ const SocialLoginButton = ({
 );
 
 const LoginScreen = () => {
+  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSignup, setIsSignup] = useState(false);
@@ -105,6 +146,10 @@ const LoginScreen = () => {
     selectAccount: true,
   });
 
+  const navigateToHome = useCallback(() => {
+    navigation.navigate("Tabs", { screen: "Map" });
+  }, [navigation]);
+
   useEffect(() => {
     const finishGoogleSignIn = async () => {
       if (!googleResponse || googleResponse.type !== "success") return;
@@ -123,6 +168,7 @@ const LoginScreen = () => {
       try {
         const credential = GoogleAuthProvider.credential(idToken, accessToken);
         await signInWithCredential(FIREBASE_AUTH, credential);
+        navigateToHome();
       } catch (authError) {
         setError(authError instanceof Error ? authError.message : "Google sign-in failed.");
       } finally {
@@ -131,7 +177,7 @@ const LoginScreen = () => {
     };
 
     void finishGoogleSignIn();
-  }, [googleResponse]);
+  }, [googleResponse, navigateToHome]);
 
   const handleEmailAuth = async () => {
     if (!email.trim() || !password.trim()) {
@@ -148,6 +194,7 @@ const LoginScreen = () => {
       } else {
         await signInWithEmailAndPassword(FIREBASE_AUTH, email.trim(), password);
       }
+      navigateToHome();
     } catch (authError) {
       setError(authError instanceof Error ? authError.message : "Authentication failed.");
     } finally {
@@ -180,6 +227,12 @@ const LoginScreen = () => {
     setError(null);
 
     try {
+      const isAvailable = await AppleAuthentication.isAvailableAsync();
+      if (!isAvailable) {
+        setError("Apple sign-in is unavailable on this simulator/device.");
+        return;
+      }
+
       const rawNonce = Array.from(await Crypto.getRandomBytesAsync(16))
         .map((b) => b.toString(16).padStart(2, "0"))
         .join("");
@@ -189,13 +242,17 @@ const LoginScreen = () => {
         rawNonce,
       );
 
-      const appleCredential = await AppleAuthentication.signInAsync({
-        requestedScopes: [
-          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
-          AppleAuthentication.AppleAuthenticationScope.EMAIL,
-        ],
-        nonce: hashedNonce,
-      });
+      const appleCredential = await withTimeout(
+        AppleAuthentication.signInAsync({
+          requestedScopes: [
+            AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+            AppleAuthentication.AppleAuthenticationScope.EMAIL,
+          ],
+          nonce: hashedNonce,
+        }),
+        APPLE_SIGN_IN_TIMEOUT_MS,
+        "Apple sign-in",
+      );
 
       if (!appleCredential.identityToken) {
         setError("Apple sign-in did not return an identity token.");
@@ -209,11 +266,44 @@ const LoginScreen = () => {
       });
 
       await signInWithCredential(FIREBASE_AUTH, credential);
+      navigateToHome();
     } catch (authError) {
-      const code = (authError as { code?: string })?.code;
-      if (code !== "ERR_CANCELED" && code !== "ERR_CANCELLED") {
-        setError(authError instanceof Error ? authError.message : "Apple sign-in failed.");
+      if (isAppleCancelledError(authError)) {
+        return;
       }
+
+      const code = getErrorCode(authError);
+      const isTimeout =
+        authError instanceof Error &&
+        authError.message.toLowerCase().includes("timed out");
+
+      const normalized = {
+        code,
+        name: authError instanceof Error ? authError.name : "Error",
+        message: authError instanceof Error ? authError.message : String(authError),
+        stack: authError instanceof Error ? authError.stack : undefined,
+      };
+
+      console.error(`[Roadie][appleSignIn] ${JSON.stringify(normalized)}`);
+
+      if (code === "ERR_INVALID_OPERATION" || code === "ERR_REQUEST_NOT_HANDLED") {
+        setError("Apple sign-in is not enabled in this build. Rebuild the iOS dev client.");
+        return;
+      }
+
+      if (isTimeout) {
+        setError(
+          "Apple sign-in timed out. On simulator, sign in to an Apple ID in Settings and try again.",
+        );
+        return;
+      }
+
+      if (code === "auth/operation-not-allowed") {
+        setError("Apple sign-in is disabled in Firebase Auth.");
+        return;
+      }
+
+      setError(authError instanceof Error ? authError.message : "Apple sign-in failed.");
     } finally {
       setLoading(false);
     }
@@ -228,6 +318,7 @@ const LoginScreen = () => {
         keyboardType="email-address"
         autoCapitalize="none"
         placeholder="Email"
+        placeholderTextColor={palette.gray300}
         style={styles.input}
         testID="login-email"
       />
@@ -236,6 +327,7 @@ const LoginScreen = () => {
         onChangeText={setPassword}
         secureTextEntry
         placeholder="Password"
+        placeholderTextColor={palette.gray300}
         style={styles.input}
         testID="login-password"
       />
@@ -272,63 +364,5 @@ const LoginScreen = () => {
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 18,
-    justifyContent: "center",
-    backgroundColor: "#F5F5F7",
-  },
-  title: {
-    fontSize: 27,
-    fontWeight: "700",
-    marginBottom: 16,
-    color: "#101820",
-  },
-  input: {
-    backgroundColor: "#FFFFFF",
-    borderColor: "#D0D5DD",
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 10,
-  },
-  socialAuthButton: {
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    marginTop: 8,
-  },
-  socialAuthButtonLight: {
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#D0D5DD",
-  },
-  socialAuthButtonDark: {
-    backgroundColor: "#101820",
-  },
-  socialAuthContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  socialAuthLabel: {
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  socialAuthLabelLight: {
-    color: "#111827",
-  },
-  socialAuthLabelDark: {
-    color: "#FFFFFF",
-  },
-  errorText: {
-    color: "#B42323",
-    marginBottom: 8,
-  },
-});
 
 export default LoginScreen;
