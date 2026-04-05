@@ -66,6 +66,8 @@ const App = () => {
           address: null,
           photoURL: firebaseUser.photoURL,
           roadieId: null,
+          roadieContractAcceptedAt: null,
+          roadieContractVersion: null,
         };
 
         try {
@@ -78,6 +80,8 @@ const App = () => {
             address: userProfile?.address ?? nextUser.address,
             photoURL: userProfile?.photoURL ?? nextUser.photoURL,
             roadieId: userProfile?.roadieId ?? null,
+            roadieContractAcceptedAt: userProfile?.roadieContractAcceptedAt ?? null,
+            roadieContractVersion: userProfile?.roadieContractVersion ?? null,
           };
         } catch (error) {
           logAuthStateError("ensureUserDocument", error, firebaseUser.uid);

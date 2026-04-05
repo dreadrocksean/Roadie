@@ -5,14 +5,12 @@ import {
 } from "./roadie";
 import {
   collectionGroup,
-  doc,
   getDoc,
   getDocs,
   increment,
   onSnapshot,
   query,
   runTransaction,
-  serverTimestamp,
   where,
 } from "../lib/firebase";
 
@@ -493,7 +491,10 @@ describe("roadie service", () => {
           id: "roadie-object",
           ref: { path: "artists/a/shows/roadie-object" },
           data: () => ({
-            roadies: { enabled: true, loadIn: { requiredCount: 1, acceptedCount: 0 } },
+            roadies: {
+              enabled: true,
+              loadIn: { requiredCount: 1, acceptedCount: 0 },
+            },
             lat: 41.9,
             lng: -87.63,
           }),
@@ -527,10 +528,18 @@ describe("roadie service", () => {
     const fetchResults = await fetchRoadieShows({ lat: 41.9, lng: -87.63 }, 30);
     const fetchedIds = fetchResults.map((show) => show.id);
     expect(fetchedIds).toEqual(
-      expect.arrayContaining(["roadie", "roadie-object", "roadie-object-implicit"]),
+      expect.arrayContaining([
+        "roadie",
+        "roadie-object",
+        "roadie-object-implicit",
+      ]),
     );
     expect(fetchedIds).not.toEqual(
-      expect.arrayContaining(["non-roadie", "non-roadie-object", "non-roadie-implicit"]),
+      expect.arrayContaining([
+        "non-roadie",
+        "non-roadie-object",
+        "non-roadie-implicit",
+      ]),
     );
 
     const nextSnapshots: Array<(snapshot: { docs: any[] }) => void> = [];
@@ -574,7 +583,11 @@ describe("roadie service", () => {
         {
           id: "live-roadie-object-implicit",
           ref: { path: "artists/a/shows/live-roadie-object-implicit" },
-          data: () => ({ roadies: { loadOut: { requiredCount: 1 } }, lat: 41.9, lng: -87.63 }),
+          data: () => ({
+            roadies: { loadOut: { requiredCount: 1 } },
+            lat: 41.9,
+            lng: -87.63,
+          }),
         },
         {
           id: "live-non-roadie-implicit",
@@ -617,7 +630,11 @@ describe("roadie service", () => {
           roadies: {
             enabled: true,
             priceCents: 12500,
-            loadIn: { requiredCount: 2, acceptedCount: 0, startsAt: new Date("2026-04-04T10:00:00Z") },
+            loadIn: {
+              requiredCount: 2,
+              acceptedCount: 0,
+              startsAt: new Date("2026-04-04T10:00:00Z"),
+            },
           },
         }),
       };
@@ -647,7 +664,10 @@ describe("roadie service", () => {
       "loadIn",
     );
 
-    expect(runTransaction).toHaveBeenCalledWith({ id: "db" }, expect.any(Function));
+    expect(runTransaction).toHaveBeenCalledWith(
+      { id: "db" },
+      expect.any(Function),
+    );
     expect(txSet).toHaveBeenCalledWith(
       expect.objectContaining({
         path: "artists/a1/shows/show-1/roadieAssignments/roadie-1_loadIn",
@@ -742,5 +762,274 @@ describe("roadie service", () => {
         "loadIn",
       ),
     ).rejects.toThrow("already accepted");
+  });
+
+  it("throws when show no longer exists", async () => {
+    runTransactionMock.mockImplementation(async (_db, transactionFn) =>
+      transactionFn({
+        get: jest.fn(async (ref: { path: string }) => {
+          if (ref.path.includes("/roadieAssignments/")) {
+            return {
+              exists: (): boolean => false,
+              data: () => ({}),
+            };
+          }
+          return {
+            exists: (): boolean => false,
+            data: () => ({}),
+          };
+        }),
+        set: jest.fn(),
+        update: jest.fn(),
+      }),
+    );
+
+    await expect(
+      acceptRoadieJob(
+        { id: "missing", path: "artists/a1/shows/missing" },
+        { uid: "roadie-404" },
+        "loadIn",
+      ),
+    ).rejects.toThrow("no longer available");
+  });
+
+  it("throws when required count is zero", async () => {
+    runTransactionMock.mockImplementation(async (_db, transactionFn) =>
+      transactionFn({
+        get: jest.fn(async (ref: { path: string }) => {
+          if (ref.path.includes("/roadieAssignments/")) {
+            return { exists: (): boolean => false, data: () => ({}) };
+          }
+          return {
+            exists: (): boolean => true,
+            data: () => ({
+              roadies: {
+                enabled: true,
+                loadIn: { requiredCount: 0, acceptedCount: 0 },
+              },
+            }),
+          };
+        }),
+        set: jest.fn(),
+        update: jest.fn(),
+      }),
+    );
+
+    await expect(
+      acceptRoadieJob(
+        { id: "show-closed", path: "artists/a1/shows/show-closed" },
+        { uid: "roadie-zero" },
+        "loadIn",
+      ),
+    ).rejects.toThrow("not currently accepting");
+  });
+
+  it("accepts with fallback ids/defaults and marks shift full", async () => {
+    const txGet = jest.fn(async (ref: { path: string }) => {
+      if (ref.path.endsWith("/roadieAssignments/roadie-3_loadOut")) {
+        return { exists: (): boolean => false, data: () => ({}) };
+      }
+      return {
+        exists: (): boolean => true,
+        data: () => ({
+          roadies: {
+            enabled: true,
+            loadOut: { requiredCount: 1, acceptedCount: 0 },
+          },
+          roadiesLoadOutTime: new Date("2026-04-06T03:00:00Z"),
+        }),
+      };
+    });
+    const txSet = jest.fn();
+    const txUpdate = jest.fn();
+
+    runTransactionMock.mockImplementation(async (_db, transactionFn) =>
+      transactionFn({
+        get: txGet,
+        set: txSet,
+        update: txUpdate,
+      }),
+    );
+
+    await acceptRoadieJob(
+      {
+        id: "",
+        path: "artists/a1/shows/show-path-id",
+      },
+      {
+        uid: "roadie-3",
+      },
+      "loadOut",
+    );
+
+    expect(txSet).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        showId: "show-path-id",
+        artistId: "",
+        roadieId: "roadie-3",
+        displayName: "",
+        email: "",
+        phone: "",
+        shiftStartsAt: new Date("2026-04-06T03:00:00.000Z"),
+      }),
+      { merge: true },
+    );
+    expect(txSet.mock.calls[0]?.[1]).not.toHaveProperty("priceCentsSnapshot");
+    expect(txUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        "roadies.loadOut.status": "FULL",
+        "roadieApplicants.roadie-3_loadOut": expect.objectContaining({
+          displayName: "",
+          email: "",
+          phone: "",
+        }),
+      }),
+    );
+  });
+
+  it("supports load-in and load-out shift start fallbacks", async () => {
+    const shiftStarts: Array<Date | null> = [];
+
+    runTransactionMock.mockImplementation(async (_db, transactionFn) =>
+      transactionFn({
+        get: jest.fn(async (ref: { path: string }) => {
+          if (ref.path.includes("/roadieAssignments/")) {
+            return { exists: (): boolean => false, data: () => ({}) };
+          }
+          if (ref.path.includes("show-loadin-roadies-object-loadintime")) {
+            return {
+              exists: (): boolean => true,
+              data: () => ({
+                roadies: {
+                  enabled: true,
+                  loadIn: { requiredCount: 1, acceptedCount: 0 },
+                },
+                loadInTime: new Date("2026-04-07T10:30:00Z"),
+              }),
+            };
+          }
+          if (ref.path.includes("show-loadin-roadies-object")) {
+            return {
+              exists: (): boolean => true,
+              data: () => ({
+                roadies: {
+                  enabled: true,
+                  loadIn: { requiredCount: 1, acceptedCount: 0 },
+                },
+                roadiesLoadInTime: new Date("2026-04-07T10:00:00Z"),
+              }),
+            };
+          }
+          if (ref.path.includes("show-loadin-non-object-scheduledstart")) {
+            return {
+              exists: (): boolean => true,
+              data: () => ({
+                roadies: true,
+                roadiesLoadInCount: 1,
+                scheduledStart: new Date("2026-04-07T11:30:00Z"),
+              }),
+            };
+          }
+          if (ref.path.includes("show-loadin-non-object")) {
+            return {
+              exists: (): boolean => true,
+              data: () => ({
+                roadies: true,
+                roadiesLoadInCount: 1,
+                loadInTime: new Date("2026-04-07T11:00:00Z"),
+              }),
+            };
+          }
+          if (ref.path.includes("show-loadout-non-object")) {
+            return {
+              exists: (): boolean => true,
+              data: () => ({
+                roadies: true,
+                roadiesLoadOutCount: 1,
+                scheduledStop: new Date("2026-04-07T22:00:00Z"),
+              }),
+            };
+          }
+          if (ref.path === "") {
+            return {
+              exists: (): boolean => true,
+              data: () => ({
+                roadies: {
+                  enabled: true,
+                  loadOut: { requiredCount: 1, acceptedCount: 0 },
+                },
+              }),
+            };
+          }
+          return {
+            exists: (): boolean => true,
+            data: () => ({
+              roadies: true,
+            }),
+          };
+        }),
+        set: jest.fn((_ref: unknown, payload: Record<string, unknown>) => {
+          shiftStarts.push((payload.shiftStartsAt as Date | null) ?? null);
+        }),
+        update: jest.fn(),
+      }),
+    );
+
+    await acceptRoadieJob(
+      {
+        id: "loadin-object",
+        path: "artists/a/shows/show-loadin-roadies-object",
+      },
+      { uid: "roadie-4" },
+      "loadIn",
+    );
+    await acceptRoadieJob(
+      {
+        id: "loadin-object-loadintime",
+        path: "artists/a/shows/show-loadin-roadies-object-loadintime",
+      },
+      { uid: "roadie-4" },
+      "loadIn",
+    );
+    await acceptRoadieJob(
+      {
+        id: "loadin-non-object",
+        path: "artists/a/shows/show-loadin-non-object",
+      },
+      { uid: "roadie-4" },
+      "loadIn",
+    );
+    await acceptRoadieJob(
+      {
+        id: "loadin-non-object-scheduledstart",
+        path: "artists/a/shows/show-loadin-non-object-scheduledstart",
+      },
+      { uid: "roadie-4" },
+      "loadIn",
+    );
+    await acceptRoadieJob(
+      {
+        id: "loadout-non-object",
+        path: "artists/a/shows/show-loadout-non-object",
+      },
+      { uid: "roadie-4" },
+      "loadOut",
+    );
+    await acceptRoadieJob(
+      { id: "manual-id", path: "" },
+      { uid: "roadie-4" },
+      "loadOut",
+    );
+
+    expect(shiftStarts).toEqual([
+      new Date("2026-04-07T10:00:00.000Z"),
+      new Date("2026-04-07T10:30:00.000Z"),
+      new Date("2026-04-07T11:00:00.000Z"),
+      new Date("2026-04-07T11:30:00.000Z"),
+      new Date("2026-04-07T22:00:00.000Z"),
+      null,
+    ]);
   });
 });

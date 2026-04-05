@@ -91,6 +91,11 @@ export const ensureUserDocument = async (user: User) => {
       address: typeof data.address === "string" ? data.address : null,
       photoURL: typeof data.photoURL === "string" ? data.photoURL : (user.photoURL ?? null),
       roadieId: typeof data.roadieId === "string" ? data.roadieId : null,
+      roadieContractAcceptedAt: data.roadieContractAcceptedAt ?? null,
+      roadieContractVersion:
+        typeof data.roadieContractVersion === "string"
+          ? data.roadieContractVersion
+          : null,
     };
   }
 
@@ -114,6 +119,8 @@ export const ensureUserDocument = async (user: User) => {
     address: null,
     photoURL: user.photoURL ?? null,
     roadieId: null,
+    roadieContractAcceptedAt: null,
+    roadieContractVersion: null,
   };
 };
 

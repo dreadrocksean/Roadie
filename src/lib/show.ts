@@ -272,10 +272,7 @@ export const getUserRoadieStatus = (
 
   if (shiftStatuses.includes("awarded")) return "awarded";
   if (shiftStatuses.includes("accepted")) return "accepted";
-  if (shiftStatuses.length > 0) return shiftStatuses[0] ?? null;
-
-  if (show.awardedRoadieUids?.includes(userId)) return "awarded";
-  if (show.roadieAwardedUids?.includes(userId)) return "awarded";
+  if (shiftStatuses.length > 0) return shiftStatuses[0]!;
   return null;
 };
 
@@ -329,7 +326,7 @@ export const getUserRoadieShiftStatus = (
 
   if (applicantStatuses.includes("awarded")) return "awarded";
   if (applicantStatuses.includes("accepted")) return "accepted";
-  if (applicantStatuses.length > 0) return applicantStatuses[0] ?? null;
+  if (applicantStatuses.length > 0) return applicantStatuses[0]!;
 
   if (show.awardedRoadieUids?.includes(userId)) return "awarded";
   if (show.roadieAwardedUids?.includes(userId)) return "awarded";

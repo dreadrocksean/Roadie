@@ -8,6 +8,7 @@ import { Menu } from "react-native-paper";
 
 import { logout } from "../lib/firebase";
 import AdminScreen from "../screens/AdminScreen";
+import ContractScreen from "../screens/ContractScreen";
 import JobsScreen from "../screens/JobsScreen";
 import LoginScreen from "../screens/LoginScreen";
 import MapScreen from "../screens/MapScreen";
@@ -121,6 +122,10 @@ const GuardedTabs = () => {
     return <LoginScreen />;
   }
 
+  if (!user.roadieContractAcceptedAt) {
+    return <ContractScreen />;
+  }
+
   if (!user.roadieId) {
     return <ProfileScreen />;
   }
@@ -131,15 +136,20 @@ const GuardedTabs = () => {
 const RootNavigator = () => {
   const user = useRoadieStore((state) => state.user);
   const isAuthenticated = Boolean(user);
+  const hasAcceptedContract = Boolean(user?.roadieContractAcceptedAt);
   const hasRoadieId = Boolean(user?.roadieId);
   const startRoute = !isAuthenticated
     ? "Login"
-    : hasRoadieId
+    : !hasAcceptedContract
+      ? "Contract"
+      : hasRoadieId
       ? "Tabs"
       : "Profile";
   const navigatorKey = !isAuthenticated
     ? "guest"
-    : hasRoadieId
+    : !hasAcceptedContract
+      ? "auth-missing-contract"
+      : hasRoadieId
       ? "auth-complete"
       : "auth-missing-roadie";
 
@@ -167,6 +177,20 @@ const RootNavigator = () => {
               )
             : undefined,
           headerRight: isAuthenticated ? () => <HeaderMenu /> : undefined,
+        })}
+      />
+      <Stack.Screen
+        name="Contract"
+        component={ContractScreen}
+        options={({ navigation }) => ({
+          title: "Agreement",
+          presentation: "card",
+          headerLeft: () => (
+            <HeaderLogo
+              onPress={() => navigation.navigate("Tabs", { screen: "Map" })}
+            />
+          ),
+          headerRight: () => <HeaderMenu />,
         })}
       />
       <Stack.Screen

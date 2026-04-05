@@ -83,6 +83,11 @@ jest.mock("../screens/ProfileScreen", () => {
   const { Text } = require("react-native");
   return () => <Text>PROFILE_SCREEN</Text>;
 });
+jest.mock("../screens/ContractScreen", () => {
+  const React = require("react");
+  const { Text } = require("react-native");
+  return () => <Text>CONTRACT_SCREEN</Text>;
+});
 
 const useRoadieStoreMock = useRoadieStore as unknown as jest.Mock;
 
@@ -112,7 +117,7 @@ describe("RootNavigator", () => {
   });
 
   it("renders tab root for signed in user", () => {
-    bindStore({ user: { uid: "u1", roadieId: "r1" } });
+    bindStore({ user: { uid: "u1", roadieId: "r1", roadieContractAcceptedAt: 1 } });
 
     const { getByText, getByTestId } = render(
       <NavigationContainer>
@@ -125,7 +130,7 @@ describe("RootNavigator", () => {
   });
 
   it("renders profile root when signed in user is missing roadie id", () => {
-    bindStore({ user: { uid: "u1", roadieId: null } });
+    bindStore({ user: { uid: "u1", roadieId: null, roadieContractAcceptedAt: 1 } });
 
     const { getByText } = render(
       <NavigationContainer>
@@ -137,7 +142,7 @@ describe("RootNavigator", () => {
   });
 
   it("navigates back to map when logo is pressed", async () => {
-    bindStore({ user: { uid: "u1", roadieId: "r1" } });
+    bindStore({ user: { uid: "u1", roadieId: "r1", roadieContractAcceptedAt: 1 } });
 
     const { getByText, getByTestId } = render(
       <NavigationContainer>
@@ -158,7 +163,7 @@ describe("RootNavigator", () => {
   });
 
   it("navigates to profile and can logout when user exists", async () => {
-    bindStore({ user: { uid: "u1", roadieId: "r1" } });
+    bindStore({ user: { uid: "u1", roadieId: "r1", roadieContractAcceptedAt: 1 } });
 
     const { getByTestId, getByText } = render(
       <NavigationContainer>
@@ -182,7 +187,7 @@ describe("RootNavigator", () => {
   });
 
   it("navigates home from profile modal logo", async () => {
-    bindStore({ user: { uid: "u1", roadieId: "r1" } });
+    bindStore({ user: { uid: "u1", roadieId: "r1", roadieContractAcceptedAt: 1 } });
 
     const { getByTestId, getByText, getAllByTestId, queryByText } = render(
       <NavigationContainer>
@@ -206,7 +211,7 @@ describe("RootNavigator", () => {
   });
 
   it("dismisses menu without navigation", async () => {
-    bindStore({ user: { uid: "u1", roadieId: "r1" } });
+    bindStore({ user: { uid: "u1", roadieId: "r1", roadieContractAcceptedAt: 1 } });
 
     const { getByTestId, queryByTestId } = render(
       <NavigationContainer>
@@ -221,6 +226,112 @@ describe("RootNavigator", () => {
 
     await waitFor(() => {
       expect(queryByTestId("menu-item-Login")).toBeNull();
+    });
+  });
+
+  it("renders contract root when signed in user has not accepted agreement", () => {
+    bindStore({ user: { uid: "u1", roadieId: "r1", roadieContractAcceptedAt: null } });
+
+    const { getByText } = render(
+      <NavigationContainer>
+        <RootNavigator />
+      </NavigationContainer>,
+    );
+
+    expect(getByText("CONTRACT_SCREEN")).toBeTruthy();
+  });
+
+  it("guards tabs route for missing auth, missing contract, and missing roadie id", () => {
+    bindStore({ user: null });
+    const { getByText, rerender } = render(
+      <NavigationContainer
+        initialState={{ routes: [{ name: "Tabs" }] }}
+      >
+        <RootNavigator />
+      </NavigationContainer>,
+    );
+    expect(getByText("LOGIN_SCREEN")).toBeTruthy();
+
+    bindStore({
+      user: { uid: "u1", roadieId: "r1", roadieContractAcceptedAt: null },
+    });
+    rerender(
+      <NavigationContainer
+        initialState={{ routes: [{ name: "Tabs" }] }}
+      >
+        <RootNavigator />
+      </NavigationContainer>,
+    );
+    expect(getByText("CONTRACT_SCREEN")).toBeTruthy();
+
+    bindStore({
+      user: { uid: "u1", roadieId: null, roadieContractAcceptedAt: 1 },
+    });
+    rerender(
+      <NavigationContainer
+        initialState={{ routes: [{ name: "Tabs" }] }}
+      >
+        <RootNavigator />
+      </NavigationContainer>,
+    );
+    expect(getByText("PROFILE_SCREEN")).toBeTruthy();
+  });
+
+  it("shows authenticated login header controls when Login route is opened", async () => {
+    bindStore({ user: { uid: "u1", roadieId: "r1", roadieContractAcceptedAt: 1 } });
+
+    const { getByText, getByTestId } = render(
+      <NavigationContainer
+        initialState={{ routes: [{ name: "Login" }] }}
+      >
+        <RootNavigator />
+      </NavigationContainer>,
+    );
+
+    expect(getByText("LOGIN_SCREEN")).toBeTruthy();
+    expect(getByTestId("header-logo-button")).toBeTruthy();
+    expect(getByTestId("header-menu-button")).toBeTruthy();
+
+    fireEvent.press(getByTestId("header-logo-button"));
+    await waitFor(() => {
+      expect(getByText("MAP_SCREEN")).toBeTruthy();
+    });
+  });
+
+  it("handles login menu navigation when menu is shown without a user", async () => {
+    bindStore({ user: null });
+
+    const { getByTestId, getByText } = render(
+      <NavigationContainer
+        initialState={{ routes: [{ name: "Contract" }] }}
+      >
+        <RootNavigator />
+      </NavigationContainer>,
+    );
+
+    fireEvent.press(getByTestId("header-menu-button"));
+    fireEvent.press(getByTestId("menu-item-Login"));
+
+    await waitFor(() => {
+      expect(getByText("LOGIN_SCREEN")).toBeTruthy();
+    });
+  });
+
+  it("navigates to map from contract header logo", async () => {
+    bindStore({ user: { uid: "u1", roadieId: "r1", roadieContractAcceptedAt: 1 } });
+
+    const { getAllByTestId, getByText } = render(
+      <NavigationContainer
+        initialState={{ routes: [{ name: "Contract" }] }}
+      >
+        <RootNavigator />
+      </NavigationContainer>,
+    );
+
+    fireEvent.press(getAllByTestId("header-logo-button").at(-1)!);
+
+    await waitFor(() => {
+      expect(getByText("MAP_SCREEN")).toBeTruthy();
     });
   });
 });

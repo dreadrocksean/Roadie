@@ -7,6 +7,7 @@ import {
   getLoadOutTime,
   getRequiredRoadies,
   getRoadiePay,
+  getRoadieShiftRequired,
   getUserRoadieShiftStatus,
   getUserRoadieStatus,
   getVenueAddress,
@@ -78,11 +79,23 @@ describe("show helpers", () => {
     expect(getRoadiePay({ roadiePrice: "200" as any } as any)).toBe(200);
     expect(getRoadiePay({ roadiePrice: "$2,450.50" as any } as any)).toBe(2450.5);
     expect(getRoadiePay({ roadiePrice: { amount: "175" } as any } as any)).toBe(175);
+    expect(getRoadiePay({ roadiePrice: Number.POSITIVE_INFINITY } as any)).toBeNull();
+    expect(getRoadiePay({ roadiePrice: "$$$" as any } as any)).toBeNull();
+    expect(getRoadiePay({ roadiePrice: "not-a-number" as any } as any)).toBeNull();
     expect(getRoadiePay({ payAmount: 200 } as any)).toBeNull();
     expect(getRoadiePay({} as any)).toBeNull();
 
     expect(formatCurrency(100)).toContain("$");
     expect(formatCurrency(null)).toBe("TBD");
+  });
+
+  it("parses string shift counts in shift-specific required calculations", () => {
+    expect(
+      getRoadieShiftRequired({ roadiesLoadInCount: "2" } as any, "loadIn"),
+    ).toBe(2);
+    expect(
+      getRoadieShiftRequired({ roadiesLoadOutCount: "3" } as any, "loadOut"),
+    ).toBe(3);
   });
 
   it("gets venue address and load times", () => {
@@ -177,6 +190,92 @@ describe("show helpers", () => {
     expect(getUserRoadieShiftStatus(show, "me", "loadIn")).toBe("accepted");
     expect(getUserRoadieShiftStatus(show, "me", "loadOut")).toBe("awarded");
     expect(getUserRoadieStatus(show, "me")).toBe("awarded");
+  });
+
+  it("handles unkeyed shift statuses, invalid applicants, and awarded fallbacks", () => {
+    expect(
+      getUserRoadieShiftStatus(
+        {
+          roadieApplicants: {
+            invalid: { uid: 123, status: "accepted" },
+            mismatch: { uid: "me", status: "accepted", shiftType: "loadOut" },
+          },
+        } as any,
+        "me",
+        "loadIn",
+      ),
+    ).toBeNull();
+
+    expect(
+      getUserRoadieShiftStatus(
+        {
+          roadieApplicants: {
+            alpha: { uid: "me", status: "awarded", shiftType: "loadIn" },
+            beta: { uid: "other", status: "accepted", shiftType: "loadIn" },
+          },
+        } as any,
+        "me",
+        "loadIn",
+      ),
+    ).toBe("awarded");
+
+    expect(
+      getUserRoadieShiftStatus(
+        {
+          roadieApplicants: {
+            alpha: { uid: "me", status: "accepted", shiftType: "loadIn" },
+          },
+        } as any,
+        "me",
+        "loadIn",
+      ),
+    ).toBe("accepted");
+
+    expect(
+      getUserRoadieShiftStatus(
+        {
+          roadieApplicants: {
+            alpha: { uid: "me", status: "requested", shiftType: "loadIn" },
+            beta: { uid: "other", status: "awarded", shiftType: "loadIn" },
+          },
+        } as any,
+        "me",
+        "loadIn",
+      ),
+    ).toBe("requested");
+
+    expect(
+      getUserRoadieStatus(
+        {
+          roadieApplicants: {
+            alpha: { uid: "me", status: "requested", shiftType: "loadIn" },
+          },
+        } as any,
+        "me",
+      ),
+    ).toBe("requested");
+
+    expect(
+      getUserRoadieStatus(
+        {
+          roadieApplicants: {},
+          awardedRoadieUids: ["other"],
+          roadieAwardedUids: ["me"],
+        } as any,
+        "me",
+      ),
+    ).toBe("awarded");
+
+    expect(
+      getUserRoadieStatus(
+        {
+          roadieApplicants: {},
+          awardedRoadieUids: ["other"],
+          roadieAwardedUids: ["another"],
+        } as any,
+        "me",
+      ),
+    ).toBeNull();
   });
 
   it("summarizes admin stats", () => {

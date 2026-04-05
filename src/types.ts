@@ -123,11 +123,14 @@ export type UserProfile = {
   address?: string | null;
   photoURL?: string | null;
   roadieId?: string | null;
+  roadieContractAcceptedAt?: unknown | null;
+  roadieContractVersion?: string | null;
 };
 
 export type RootStackParamList = {
   Tabs: NavigatorScreenParams<TabsParamList> | undefined;
   Login: undefined;
+  Contract: undefined;
   Profile: undefined;
 };
 

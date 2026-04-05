@@ -123,7 +123,7 @@ export default StyleSheet.create({
     borderColor: palette.gray500,
     borderRadius: 12,
     padding: 10,
-    backgroundColor: palette.gray900,
+    backgroundColor: palette.gray850,
   },
   shiftHeader: {
     flexDirection: "row",

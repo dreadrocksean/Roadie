@@ -6,6 +6,9 @@ module.exports = {
     "src/**/*.{ts,tsx}",
     "!**/*.d.ts",
     "!**/node_modules/**",
+    "!src/types.ts",
+    "!src/**/index.ts",
+    "!src/**/styles.ts",
   ],
   coverageThreshold: {
     global: {

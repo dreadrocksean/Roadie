@@ -182,6 +182,92 @@ describe("firebase lib", () => {
     );
   });
 
+  it("falls back to first snapshot data when refreshed snapshot is missing", async () => {
+    const { moduleUnderTest, mocks } = loadFirebaseModule({ userExists: true });
+
+    mocks.getDoc
+      .mockResolvedValueOnce({
+        exists: () => true,
+        data: () => ({
+          displayName: "Stored Name",
+          phone: 12345,
+          bio: 123,
+          address: 456,
+          photoURL: 789,
+          roadieId: 999,
+          roadieContractAcceptedAt: "accepted-ts",
+          roadieContractVersion: 1,
+        }),
+      })
+      .mockResolvedValueOnce({
+        exists: () => false,
+        data: () => ({}),
+      });
+
+    const profile = await moduleUnderTest.ensureUserDocument({
+      uid: "user-fallback",
+      email: null,
+      displayName: null,
+      phoneNumber: "312-555-0000",
+      photoURL: "https://example.com/fallback.jpg",
+    } as any);
+
+    expect(profile).toEqual({
+      displayName: "Stored Name",
+      phone: "312-555-0000",
+      bio: null,
+      address: null,
+      photoURL: "https://example.com/fallback.jpg",
+      roadieId: null,
+      roadieContractAcceptedAt: "accepted-ts",
+      roadieContractVersion: null,
+    });
+  });
+
+  it("prefers refreshed snapshot string fields when available", async () => {
+    const { moduleUnderTest, mocks } = loadFirebaseModule({ userExists: true });
+
+    mocks.getDoc
+      .mockResolvedValueOnce({
+        exists: () => true,
+        data: () => ({
+          displayName: "Older Name",
+        }),
+      })
+      .mockResolvedValueOnce({
+        exists: () => true,
+        data: () => ({
+          displayName: "Fresh Name",
+          phone: "312-555-1111",
+          bio: "Fresh bio",
+          address: "123 Fresh St",
+          photoURL: "https://example.com/fresh.jpg",
+          roadieId: "roadie-1",
+          roadieContractAcceptedAt: "fresh-ts",
+          roadieContractVersion: "v1",
+        }),
+      });
+
+    const profile = await moduleUnderTest.ensureUserDocument({
+      uid: "user-fresh",
+      email: "fresh@example.com",
+      displayName: "Auth Name",
+      phoneNumber: "312-555-0000",
+      photoURL: "https://example.com/auth.jpg",
+    } as any);
+
+    expect(profile).toEqual({
+      displayName: "Fresh Name",
+      phone: "312-555-1111",
+      bio: "Fresh bio",
+      address: "123 Fresh St",
+      photoURL: "https://example.com/fresh.jpg",
+      roadieId: "roadie-1",
+      roadieContractAcceptedAt: "fresh-ts",
+      roadieContractVersion: "v1",
+    });
+  });
+
   it("creates user document for a new user", async () => {
     const { moduleUnderTest, mocks } = loadFirebaseModule({ userExists: false });
 

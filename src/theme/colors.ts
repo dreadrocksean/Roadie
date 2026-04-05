@@ -7,6 +7,8 @@ export const palette = {
   gray300: "#BFBFBF",
   gray500: "#737373",
   gray700: "#3B3B3B",
+  gray800: "#292929",
+  gray850: "#202020",
   gray900: "#171717",
   accentRed: "#D62E2E",
   accentRedSoft: "rgba(214,46,46,0.12)",
@@ -14,4 +16,5 @@ export const palette = {
   accentGreen: "#2FB66D",
   overlayDark: "rgba(0,0,0,0.35)",
   overlayLight: "rgba(255,255,255,0.65)",
+  cardBg: "#1c4dff25",
 } as const;

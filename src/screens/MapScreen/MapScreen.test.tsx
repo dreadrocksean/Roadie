@@ -21,6 +21,17 @@ jest.mock("react-native-maps", () => {
   };
 });
 
+jest.mock("@expo/vector-icons", () => {
+  const React = require("react");
+  const { Text } = require("react-native");
+
+  return {
+    MaterialCommunityIcons: ({ name, testID }: { name?: string; testID?: string }) => (
+      <Text testID={testID}>{name ?? "icon"}</Text>
+    ),
+  };
+});
+
 const useRoadieStoreMock = useRoadieStore as unknown as jest.Mock;
 
 const makeState = (overrides: Record<string, unknown> = {}) => ({
@@ -222,5 +233,74 @@ describe("MapScreen", () => {
     await waitFor(() => {
       expect(state.acceptSelectedShow).toHaveBeenCalledWith("loadIn");
     });
+  });
+
+  it("renders awarded and accepted shift states with notes", () => {
+    const selectedShow = {
+      id: "show-awarded",
+      path: "artists/a/shows/show-awarded",
+      requiredRoadies: 2,
+      distanceMiles: 1,
+      bandName: "Awarded Band",
+      venue: null,
+      artist: null,
+      coordinates: { lat: 41.9, lng: -87.63 },
+      roadies: {
+        enabled: true,
+        loadIn: { requiredCount: 1, acceptedCount: 0, notes: "Load-in dock B" },
+        loadOut: { requiredCount: 1, acceptedCount: 0, notes: "Load-out at back alley" },
+      },
+      roadieApplicants: {
+        u1_loadIn: { uid: "u1", status: "awarded", shiftType: "loadIn" },
+        u1_loadOut: { uid: "u1", status: "accepted", shiftType: "loadOut" },
+      },
+    };
+
+    bindStore(
+      makeState({
+        user: { uid: "u1" },
+        selectedShow,
+        shows: [selectedShow],
+      }),
+    );
+
+    const { getByText, getAllByText } = render(<MapScreen />);
+
+    expect(getByText("Load-in dock B")).toBeTruthy();
+    expect(getByText("Load-out at back alley")).toBeTruthy();
+    expect(getAllByText("Awarded").length).toBeGreaterThan(0);
+    expect(getAllByText("Accepted").length).toBeGreaterThan(0);
+  });
+
+  it("renders closed and unavailable shift states", () => {
+    const selectedShow = {
+      id: "show-closed-unavailable",
+      path: "artists/a/shows/show-closed-unavailable",
+      requiredRoadies: 1,
+      distanceMiles: 1,
+      bandName: "Closed Band",
+      venue: null,
+      artist: null,
+      coordinates: { lat: 41.9, lng: -87.63 },
+      roadies: {
+        enabled: true,
+        loadIn: { requiredCount: 1, acceptedCount: 1 },
+        loadOut: { requiredCount: 0, acceptedCount: 0 },
+      },
+    };
+
+    bindStore(
+      makeState({
+        user: { uid: "u2" },
+        selectedShow,
+        shows: [selectedShow],
+      }),
+    );
+
+    const { getAllByText } = render(<MapScreen />);
+
+    expect(getAllByText("Closed").length).toBeGreaterThan(0);
+    expect(getAllByText("Not Accepted").length).toBeGreaterThan(0);
+    expect(getAllByText("Unavailable").length).toBeGreaterThan(0);
   });
 });

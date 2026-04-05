@@ -587,4 +587,132 @@ describe("useRoadieStore", () => {
     expect(success).toBe(false);
     expect(useRoadieStore.getState().error).toBe("Failed to accept roadie job.");
   });
+
+  it("accepts a load-out shift and updates object roadies config without closing when slots remain", async () => {
+    useRoadieStore.setState({
+      user: { uid: "u3", displayName: "Roadie Three" },
+      selectedShow: {
+        id: "s40",
+        path: "artists/a/shows/s40",
+        requiredRoadies: 2,
+        distanceMiles: 1,
+        venue: null,
+        artist: null,
+        coordinates: { lat: 1, lng: 1 },
+        roadies: {
+          enabled: true,
+          loadIn: { requiredCount: 1, acceptedCount: 0 },
+          loadOut: { requiredCount: 2, acceptedCount: 0 },
+        },
+      } as any,
+      shows: [
+        {
+          id: "s40",
+          path: "artists/a/shows/s40",
+          requiredRoadies: 2,
+          distanceMiles: 1,
+          venue: null,
+          artist: null,
+          coordinates: { lat: 1, lng: 1 },
+          roadies: {
+            enabled: true,
+            loadIn: { requiredCount: 1, acceptedCount: 0 },
+            loadOut: { requiredCount: 2, acceptedCount: 0 },
+          },
+        },
+      ] as any,
+    });
+
+    const success = await useRoadieStore.getState().acceptSelectedShow("loadOut");
+
+    expect(success).toBe(true);
+    expect(useRoadieStore.getState().shows[0]?.roadies?.loadOut).toEqual(
+      expect.objectContaining({
+        acceptedCount: 1,
+        status: "OPEN",
+      }),
+    );
+    expect(useRoadieStore.getState().shows[0]?.roadieApplicants?.u3_loadOut).toEqual(
+      expect.objectContaining({
+        uid: "u3",
+        shiftType: "loadOut",
+      }),
+    );
+  });
+
+  it("keeps selected show when accepted show is missing from the local shows list", async () => {
+    const selectedShow = {
+      id: "s50",
+      path: "artists/a/shows/s50",
+      requiredRoadies: 1,
+      distanceMiles: 1,
+      venue: null,
+      artist: null,
+      coordinates: { lat: 1, lng: 1 },
+    } as any;
+
+    useRoadieStore.setState({
+      user: { uid: "u5" },
+      selectedShow,
+      shows: [
+        {
+          id: "other",
+          path: "artists/a/shows/other",
+          requiredRoadies: 1,
+          distanceMiles: 1,
+          venue: null,
+          artist: null,
+          coordinates: { lat: 1, lng: 1 },
+        },
+      ] as any,
+    });
+
+    const success = await useRoadieStore.getState().acceptSelectedShow("loadIn");
+
+    expect(success).toBe(true);
+    expect(useRoadieStore.getState().selectedShow).toBe(selectedShow);
+  });
+
+  it("falls back load-out config and enables roadies when those fields are missing", async () => {
+    useRoadieStore.setState({
+      user: { uid: "u6" },
+      selectedShow: {
+        id: "s60",
+        path: "artists/a/shows/s60",
+        requiredRoadies: 2,
+        distanceMiles: 1,
+        venue: null,
+        artist: null,
+        coordinates: { lat: 1, lng: 1 },
+        roadiesCount: 2,
+        roadies: {},
+      } as any,
+      shows: [
+        {
+          id: "s60",
+          path: "artists/a/shows/s60",
+          requiredRoadies: 2,
+          distanceMiles: 1,
+          venue: null,
+          artist: null,
+          coordinates: { lat: 1, lng: 1 },
+          roadiesCount: 2,
+          roadies: {},
+        },
+      ] as any,
+    });
+
+    const success = await useRoadieStore.getState().acceptSelectedShow("loadOut");
+
+    expect(success).toBe(true);
+    expect(useRoadieStore.getState().shows[0]?.roadies).toEqual(
+      expect.objectContaining({
+        enabled: true,
+        loadOut: expect.objectContaining({
+          acceptedCount: 1,
+          status: "OPEN",
+        }),
+      }),
+    );
+  });
 });

@@ -182,6 +182,30 @@ describe("ProfileScreen", () => {
     expect(queryByText("Save Profile")).toBeNull();
   });
 
+  it("updates profile without rewriting createdAt when roadie id already matches user id", async () => {
+    bindStore({
+      user: {
+        uid: "u1",
+        roadieId: "u1",
+        displayName: "Existing",
+        phone: "111",
+        photoURL: null,
+      },
+      setUserProfile: jest.fn(),
+    });
+
+    const { getByText } = render(<ProfileScreen />);
+    fireEvent.press(getByText("Update Profile"));
+
+    await waitFor(() => {
+      const roadieWriteCall = (setDoc as jest.Mock).mock.calls.find(
+        ([docRef]) => docRef?.path === "roadies/u1",
+      );
+      expect(roadieWriteCall).toBeTruthy();
+      expect(roadieWriteCall?.[1]).not.toHaveProperty("createdAt");
+    });
+  });
+
   it("handles denied media permission", async () => {
     bindStore({
       user: { uid: "u1" },
