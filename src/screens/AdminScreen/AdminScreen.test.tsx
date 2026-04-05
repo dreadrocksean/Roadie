@@ -24,7 +24,7 @@ describe("AdminScreen", () => {
           id: "1",
           path: "artists/a/shows/1",
           requiredRoadies: 2,
-          roadiePay: 100,
+          roadiePrice: 100,
           distanceMiles: 1,
           venue: null,
           artist: null,

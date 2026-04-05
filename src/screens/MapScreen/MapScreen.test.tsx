@@ -83,9 +83,11 @@ describe("MapScreen", () => {
       venueAddress: "123 Main St",
       bandName: "The Headliners",
       contactPhone: "555-1111",
-      roadiePay: 175,
+      roadiePrice: 175,
       loadInTime: new Date("2026-04-02T10:00:00Z"),
       loadOutTime: new Date("2026-04-02T14:00:00Z"),
+      roadiesLoadInCount: 1,
+      roadiesLoadOutCount: 1,
       venue: { id: "v1", name: "The Metro", location: { address: "123 Main St" } },
       artist: null,
       coordinates: { lat: 41.9, lng: -87.63 },
@@ -102,6 +104,8 @@ describe("MapScreen", () => {
     expect(getByTestId("roadie-marker-show-1")).toBeTruthy();
     expect(getByText("The Headliners")).toBeTruthy();
     expect(getByText(/Roadie Pay:/)).toBeTruthy();
+    expect(getByText("Load-In Shift")).toBeTruthy();
+    expect(getByText("Load-Out Shift")).toBeTruthy();
   });
 
   it("handles accept and cancel actions", async () => {
@@ -111,6 +115,8 @@ describe("MapScreen", () => {
       requiredRoadies: 1,
       distanceMiles: 1,
       bandName: "Band",
+      roadiesLoadInCount: 1,
+      roadiesLoadOutCount: 1,
       venue: null,
       artist: null,
       coordinates: { lat: 41.9, lng: -87.63 },
@@ -126,13 +132,13 @@ describe("MapScreen", () => {
 
     const { getByText } = render(<MapScreen />);
 
-    fireEvent.press(getByText("Cancel"));
+    fireEvent.press(getByText("Close"));
     expect(state.setSelectedShow).toHaveBeenCalledWith(null);
 
-    fireEvent.press(getByText("Accept"));
+    fireEvent.press(getByText("Accept Load-In"));
 
     await waitFor(() => {
-      expect(state.acceptSelectedShow).toHaveBeenCalledTimes(1);
+      expect(state.acceptSelectedShow).toHaveBeenCalledWith("loadIn");
     });
   });
 
@@ -190,6 +196,8 @@ describe("MapScreen", () => {
       requiredRoadies: 1,
       distanceMiles: 1,
       bandName: "Band Five",
+      roadiesLoadInCount: 1,
+      roadiesLoadOutCount: 1,
       venue: null,
       artist: null,
       coordinates: { lat: 41.9, lng: -87.63 },
@@ -209,10 +217,10 @@ describe("MapScreen", () => {
     modal.props.onRequestClose();
     expect(state.setSelectedShow).toHaveBeenCalledWith(null);
 
-    fireEvent.press(getByText("Accept"));
+    fireEvent.press(getByText("Accept Load-In"));
 
     await waitFor(() => {
-      expect(state.acceptSelectedShow).toHaveBeenCalledTimes(1);
+      expect(state.acceptSelectedShow).toHaveBeenCalledWith("loadIn");
     });
   });
 });

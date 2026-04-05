@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -17,16 +17,24 @@ import {
   getBandPhone,
   getLoadInTime,
   getLoadOutTime,
+  getRoadieShiftAccepted,
+  getRoadieShiftNotes,
+  getRoadieShiftOpen,
+  getRoadieShiftRequired,
   getRoadiePay,
+  getUserRoadieShiftStatus,
   getVenueAddress,
 } from "../../lib/show";
 import { useRoadieStore } from "../../store/useRoadieStore";
 import { palette } from "../../theme/colors";
+import type { RoadieShiftType } from "../../types";
 import styles from "./styles";
 
 const RADIUS_MILES = 30;
+const ROADIE_SHIFT_TYPES: RoadieShiftType[] = ["loadIn", "loadOut"];
 
 const MapScreen = () => {
+  const mapRef = useRef<MapView | null>(null);
   const user = useRoadieStore((state) => state.user);
   const location = useRoadieStore((state) => state.location);
   const shows = useRoadieStore((state) => state.shows);
@@ -69,17 +77,47 @@ const MapScreen = () => {
     };
   }, [location]);
 
+  useEffect(() => {
+    mapRef.current?.animateToRegion?.(mapRegion, 350);
+  }, [mapRegion]);
+
   const selectedPay = selectedShow
     ? formatCurrency(getRoadiePay(selectedShow))
     : "TBD";
 
-  const handleAccept = async () => {
-    await acceptSelectedShow();
+  const selectedShiftCards = useMemo(() => {
+    if (!selectedShow) return [];
+
+    return ROADIE_SHIFT_TYPES.map((shiftType) => {
+      const open = getRoadieShiftOpen(selectedShow, shiftType);
+      const required = getRoadieShiftRequired(selectedShow, shiftType);
+      const accepted = getRoadieShiftAccepted(selectedShow, shiftType);
+      const status = getUserRoadieShiftStatus(selectedShow, user?.uid ?? null, shiftType);
+
+      return {
+        shiftType,
+        title: shiftType === "loadIn" ? "Load-In Shift" : "Load-Out Shift",
+        time:
+          shiftType === "loadIn"
+            ? getLoadInTime(selectedShow)
+            : getLoadOutTime(selectedShow),
+        notes: getRoadieShiftNotes(selectedShow, shiftType),
+        open,
+        required,
+        accepted,
+        status,
+      };
+    });
+  }, [selectedShow, user?.uid]);
+
+  const handleAcceptShift = async (shiftType: RoadieShiftType) => {
+    await acceptSelectedShow(shiftType);
   };
 
   return (
     <View style={styles.container}>
       <MapView
+        ref={mapRef}
         style={styles.map}
         testID="roadie-map"
         initialRegion={mapRegion}
@@ -110,7 +148,7 @@ const MapScreen = () => {
                 <MaterialCommunityIcons
                   name="map-marker"
                   size={44}
-                  color={palette.accentBlue}
+                  color={palette.black}
                 />
                 {/* <MaterialCommunityIcons
                   name="music-note-eighth"
@@ -202,12 +240,82 @@ const MapScreen = () => {
                   Roadie Pay:{" "}
                   <Text style={styles.modalValue}>{selectedPay}</Text>
                 </Text>
-                <Text style={styles.modalLabel}>
-                  Needed:{" "}
-                  <Text style={styles.modalValue}>
-                    {selectedShow.requiredRoadies}
-                  </Text>
-                </Text>
+                <View style={styles.shiftList}>
+                  {selectedShiftCards.map((shiftCard) => {
+                    const isAwarded = shiftCard.status === "awarded";
+                    const isAccepted = shiftCard.status === "accepted" || isAwarded;
+                    const isClosed = shiftCard.required > 0 && shiftCard.open <= 0;
+                    const disabled = shiftCard.required <= 0 || isClosed || isAccepted;
+                    const roadieStatusLabel = isAwarded
+                      ? "Awarded"
+                      : isAccepted
+                        ? "Accepted"
+                        : isClosed
+                          ? "Closed"
+                        : "Not Accepted";
+
+                    return (
+                      <View key={shiftCard.shiftType} style={styles.shiftCard}>
+                        <View style={styles.shiftHeader}>
+                          <Text style={styles.shiftTitle}>{shiftCard.title}</Text>
+                          <Text
+                            style={[
+                              styles.shiftStatus,
+                              isAwarded
+                                ? styles.shiftStatusAwarded
+                                : isAccepted
+                                  ? styles.shiftStatusAccepted
+                                  : isClosed
+                                    ? styles.shiftStatusFull
+                                : styles.shiftStatusNeutral,
+                            ]}
+                          >
+                            {roadieStatusLabel}
+                          </Text>
+                        </View>
+                        <Text style={styles.modalLabel}>
+                          Time: <Text style={styles.modalValue}>{shiftCard.time}</Text>
+                        </Text>
+                        <Text style={styles.modalLabel}>
+                          Needed: <Text style={styles.modalValue}>{shiftCard.open}</Text>
+                          <Text style={styles.modalMuted}> (of {shiftCard.required})</Text>
+                        </Text>
+                        <Text style={styles.modalLabel}>
+                          Booked: <Text style={styles.modalValue}>{shiftCard.accepted}</Text>
+                        </Text>
+                        {shiftCard.notes ? (
+                          <Text style={styles.modalLabel}>
+                            Notes: <Text style={styles.modalValue}>{shiftCard.notes}</Text>
+                          </Text>
+                        ) : null}
+                        <Pressable
+                          style={[
+                            styles.shiftAcceptButton,
+                            disabled
+                              ? styles.shiftAcceptButtonDisabled
+                              : styles.shiftAcceptButtonEnabled,
+                          ]}
+                          onPress={() => {
+                            void handleAcceptShift(shiftCard.shiftType);
+                          }}
+                          disabled={disabled}
+                        >
+                          <Text style={styles.acceptText}>
+                            {isAwarded
+                              ? "Awarded"
+                              : isAccepted
+                                ? "Accepted"
+                                : disabled
+                                  ? isClosed
+                                    ? "Closed"
+                                    : "Unavailable"
+                              : `Accept ${shiftCard.shiftType === "loadIn" ? "Load-In" : "Load-Out"}`}
+                          </Text>
+                        </Pressable>
+                      </View>
+                    );
+                  })}
+                </View>
               </ScrollView>
             ) : null}
 
@@ -216,13 +324,7 @@ const MapScreen = () => {
                 style={[styles.actionButton, styles.cancelButton]}
                 onPress={() => setSelectedShow(null)}
               >
-                <Text style={styles.cancelText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.actionButton, styles.acceptButton]}
-                onPress={handleAccept}
-              >
-                <Text style={styles.acceptText}>Accept</Text>
+                <Text style={styles.cancelText}>Close</Text>
               </Pressable>
             </View>
           </View>

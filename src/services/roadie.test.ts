@@ -1,13 +1,18 @@
-import { acceptRoadieJob, fetchRoadieShows, subscribeRoadieShows } from "./roadie";
+import {
+  acceptRoadieJob,
+  fetchRoadieShows,
+  subscribeRoadieShows,
+} from "./roadie";
 import {
   collectionGroup,
   doc,
   getDoc,
   getDocs,
+  increment,
   onSnapshot,
   query,
+  runTransaction,
   serverTimestamp,
-  updateDoc,
   where,
 } from "../lib/firebase";
 
@@ -17,22 +22,27 @@ jest.mock("../lib/firebase", () => ({
   doc: jest.fn((_db, ...segments: string[]) => ({ path: segments.join("/") })),
   getDoc: jest.fn(),
   getDocs: jest.fn(),
+  increment: jest.fn((value: number) => ({ __increment: value })),
   onSnapshot: jest.fn(),
   query: jest.fn(() => "query"),
+  runTransaction: jest.fn(),
   serverTimestamp: jest.fn(() => "ts"),
-  updateDoc: jest.fn(async () => undefined),
   where: jest.fn(() => "where"),
 }));
 
 const getDocMock = getDoc as jest.Mock;
 const getDocsMock = getDocs as jest.Mock;
+const incrementMock = increment as jest.Mock;
 const onSnapshotMock = onSnapshot as jest.Mock;
+const runTransactionMock = runTransaction as jest.Mock;
 let consoleErrorSpy: jest.SpyInstance;
 
 describe("roadie service", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => undefined);
+    consoleErrorSpy = jest
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
 
     getDocsMock.mockResolvedValue({
       docs: [
@@ -43,8 +53,8 @@ describe("roadie service", () => {
             roadies: true,
             venueId: "venue-1",
             artistId: "artist-1",
-            totalRoadies: 3,
-            bookedRoadies: 1,
+            roadiesCount: 3,
+            roadiesBooked: 1,
             bandName: "Beta",
             lat: 41.9,
             lng: -87.63,
@@ -57,7 +67,7 @@ describe("roadie service", () => {
             roadies: true,
             venueId: "venue-2",
             artistId: "artist-2",
-            totalRoadies: 4,
+            roadiesCount: 4,
             roadiesBooked: 0,
             artistName: "Alpha",
             lat: 41.9,
@@ -71,8 +81,8 @@ describe("roadie service", () => {
             roadies: true,
             venueId: "venue-3",
             artistId: "artist-3",
-            totalRoadies: 1,
-            bookedRoadies: 0,
+            roadiesCount: 1,
+            roadiesBooked: 0,
           }),
         },
         {
@@ -82,8 +92,8 @@ describe("roadie service", () => {
             roadies: true,
             venueId: "venue-4",
             artistId: "artist-4",
-            totalRoadies: 5,
-            bookedRoadies: 1,
+            roadiesCount: 5,
+            roadiesBooked: 1,
             lat: 30,
             lng: -110,
           }),
@@ -93,8 +103,8 @@ describe("roadie service", () => {
           ref: { path: "artists/a5/shows/show-5" },
           data: () => ({
             roadies: true,
-            totalRoadies: 2,
-            bookedRoadies: 0,
+            roadiesCount: 2,
+            roadiesBooked: 0,
             bandName: "Location Band",
             location: {
               latitude: 41.905,
@@ -109,8 +119,8 @@ describe("roadie service", () => {
             roadies: true,
             venueId: "venue-missing",
             artistId: "artist-missing",
-            totalRoadies: 1,
-            bookedRoadies: 0,
+            roadiesCount: 1,
+            roadiesBooked: 0,
             bandName: "No Coordinates",
           }),
         },
@@ -136,7 +146,10 @@ describe("roadie service", () => {
         return {
           id: "venue-3",
           exists: () => true,
-          data: () => ({ name: "V3", geocodes: { main: { latitude: 41.91, longitude: -87.62 } } }),
+          data: () => ({
+            name: "V3",
+            geocodes: { main: { latitude: 41.91, longitude: -87.62 } },
+          }),
         };
       }
       if (path === "venues/venue-4") {
@@ -185,38 +198,56 @@ describe("roadie service", () => {
     const results = await fetchRoadieShows({ lat: 41.9, lng: -87.63 }, 30);
 
     expect(collectionGroup).toHaveBeenCalledWith({ id: "db" }, "shows");
-    expect(where).toHaveBeenCalledWith("roadies", "==", true);
-    expect(query).toHaveBeenCalledWith("collection-group", "where");
-    expect(getDocs).toHaveBeenCalledWith("query");
+    expect(where).toHaveBeenNthCalledWith(1, "roadies", "==", true);
+    expect(where).toHaveBeenNthCalledWith(2, "roadies.enabled", "==", true);
+    expect(where).toHaveBeenNthCalledWith(3, "roadies", "!=", false);
+    expect(query).toHaveBeenCalledTimes(3);
+    expect(getDocs).toHaveBeenCalledTimes(3);
 
-    expect(results.map((show) => show.id)).toEqual(["show-2", "show-1", "show-5", "show-3"]);
+    expect(results.map((show) => show.id)).toEqual([
+      "show-2",
+      "show-1",
+      "show-5",
+      "show-3",
+    ]);
     expect(results[0].requiredRoadies).toBe(4);
     expect(results[2].coordinates).toEqual({ lat: 41.905, lng: -87.635 });
     expect(results[3].coordinates).toEqual({ lat: 41.91, lng: -87.62 });
   });
 
   it("can skip venue detail hydration when venue reads are restricted", async () => {
-    const results = await fetchRoadieShows(
-      { lat: 41.9, lng: -87.63 },
-      30,
-      { includeVenueDetails: false, includeArtistDetails: true },
-    );
+    const results = await fetchRoadieShows({ lat: 41.9, lng: -87.63 }, 30, {
+      includeVenueDetails: false,
+      includeArtistDetails: true,
+    });
 
-    expect(results.map((show) => show.id)).toEqual(["show-2", "show-1", "show-5"]);
+    expect(results.map((show) => show.id)).toEqual([
+      "show-2",
+      "show-1",
+      "show-5",
+    ]);
     expect(results[0].venue).toBeNull();
-    expect(results[0].artist).toEqual(expect.objectContaining({ id: "artist-2" }));
+    expect(results[0].artist).toEqual(
+      expect.objectContaining({ id: "artist-2" }),
+    );
   });
 
   it("can skip artist detail hydration when artist reads are restricted", async () => {
-    const results = await fetchRoadieShows(
-      { lat: 41.9, lng: -87.63 },
-      30,
-      { includeVenueDetails: true, includeArtistDetails: false },
-    );
+    const results = await fetchRoadieShows({ lat: 41.9, lng: -87.63 }, 30, {
+      includeVenueDetails: true,
+      includeArtistDetails: false,
+    });
 
-    expect(results.map((show) => show.id)).toEqual(["show-2", "show-1", "show-5", "show-3"]);
+    expect(results.map((show) => show.id)).toEqual([
+      "show-2",
+      "show-1",
+      "show-5",
+      "show-3",
+    ]);
     expect(results[0].artist).toBeNull();
-    expect(results[0].venue).toEqual(expect.objectContaining({ id: "venue-2" }));
+    expect(results[0].venue).toEqual(
+      expect.objectContaining({ id: "venue-2" }),
+    );
   });
 
   it("logs venue lookup failures and continues hydrating shows", async () => {
@@ -243,7 +274,9 @@ describe("roadie service", () => {
 
     getDocMock.mockImplementation(async ({ path }: { path: string }) => {
       if (path.startsWith("artists/")) {
-        throw Object.assign(new Error("artist-read-denied"), { code: "permission-denied" });
+        throw Object.assign(new Error("artist-read-denied"), {
+          code: "permission-denied",
+        });
       }
 
       if (baseGetDocImpl) {
@@ -265,12 +298,16 @@ describe("roadie service", () => {
   });
 
   it("subscribes to realtime roadie show updates", async () => {
-    let nextSnapshot: ((snapshot: { docs: any[] }) => void) | undefined;
-    const unsubscribeMock = jest.fn();
+    const nextSnapshots: Array<(snapshot: { docs: any[] }) => void> = [];
+    const unsubscribeLegacy = jest.fn();
+    const unsubscribeConfig = jest.fn();
+    const unsubscribeObject = jest.fn();
 
     onSnapshotMock.mockImplementation((_query, onNext) => {
-      nextSnapshot = onNext;
-      return unsubscribeMock;
+      nextSnapshots.push(onNext);
+      if (nextSnapshots.length === 1) return unsubscribeLegacy;
+      if (nextSnapshots.length === 2) return unsubscribeConfig;
+      return unsubscribeObject;
     });
 
     const onShows = jest.fn(async () => undefined);
@@ -283,13 +320,14 @@ describe("roadie service", () => {
       onError,
     );
 
-    expect(unsubscribe).toBe(unsubscribeMock);
     expect(collectionGroup).toHaveBeenCalledWith({ id: "db" }, "shows");
-    expect(where).toHaveBeenCalledWith("roadies", "==", true);
-    expect(query).toHaveBeenCalledWith("collection-group", "where");
-    expect(onSnapshot).toHaveBeenCalledWith("query", expect.any(Function), expect.any(Function));
+    expect(where).toHaveBeenNthCalledWith(1, "roadies", "==", true);
+    expect(where).toHaveBeenNthCalledWith(2, "roadies.enabled", "==", true);
+    expect(where).toHaveBeenNthCalledWith(3, "roadies", "!=", false);
+    expect(query).toHaveBeenCalledTimes(3);
+    expect(onSnapshot).toHaveBeenCalledTimes(3);
 
-    nextSnapshot?.({
+    nextSnapshots[0]?.({
       docs: [
         {
           id: "show-1",
@@ -298,8 +336,8 @@ describe("roadie service", () => {
             roadies: true,
             venueId: "venue-1",
             artistId: "artist-1",
-            totalRoadies: 3,
-            bookedRoadies: 1,
+            roadiesCount: 3,
+            roadiesBooked: 1,
             bandName: "Beta",
             lat: 41.9,
             lng: -87.63,
@@ -307,6 +345,8 @@ describe("roadie service", () => {
         },
       ],
     });
+    nextSnapshots[1]?.({ docs: [] });
+    nextSnapshots[2]?.({ docs: [] });
 
     await new Promise((resolve) => setImmediate(resolve));
 
@@ -319,13 +359,18 @@ describe("roadie service", () => {
       ]),
     );
     expect(onError).not.toHaveBeenCalled();
+
+    unsubscribe();
+    expect(unsubscribeLegacy).toHaveBeenCalledTimes(1);
+    expect(unsubscribeConfig).toHaveBeenCalledTimes(1);
+    expect(unsubscribeObject).toHaveBeenCalledTimes(1);
   });
 
   it("forwards processing errors from realtime roadie show updates", async () => {
-    let nextSnapshot: ((snapshot: { docs: any[] }) => void) | undefined;
+    const nextSnapshots: Array<(snapshot: { docs: any[] }) => void> = [];
 
     onSnapshotMock.mockImplementation((_query, onNext) => {
-      nextSnapshot = onNext;
+      nextSnapshots.push(onNext);
       return jest.fn();
     });
 
@@ -336,7 +381,7 @@ describe("roadie service", () => {
 
     subscribeRoadieShows({ lat: 41.9, lng: -87.63 }, 30, onShows, onError);
 
-    nextSnapshot?.({
+    nextSnapshots[0]?.({
       docs: [
         {
           id: "show-1",
@@ -345,8 +390,8 @@ describe("roadie service", () => {
             roadies: true,
             venueId: "venue-1",
             artistId: "artist-1",
-            totalRoadies: 3,
-            bookedRoadies: 1,
+            roadiesCount: 3,
+            roadiesBooked: 1,
             bandName: "Beta",
             lat: 41.9,
             lng: -87.63,
@@ -354,18 +399,22 @@ describe("roadie service", () => {
         },
       ],
     });
+    nextSnapshots[1]?.({ docs: [] });
+    nextSnapshots[2]?.({ docs: [] });
 
     await new Promise((resolve) => setImmediate(resolve));
 
-    expect(onShows).toHaveBeenCalledTimes(1);
-    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: "hydrate-failed" }));
+    expect(onShows).toHaveBeenCalledTimes(3);
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "hydrate-failed" }),
+    );
   });
 
   it("uses fallback error when realtime processing throws non-error values", async () => {
-    let nextSnapshot: ((snapshot: { docs: any[] }) => void) | undefined;
+    const nextSnapshots: Array<(snapshot: { docs: any[] }) => void> = [];
 
     onSnapshotMock.mockImplementation((_query, onNext) => {
-      nextSnapshot = onNext;
+      nextSnapshots.push(onNext);
       return jest.fn();
     });
 
@@ -376,7 +425,7 @@ describe("roadie service", () => {
 
     subscribeRoadieShows({ lat: 41.9, lng: -87.63 }, 30, onShows, onError);
 
-    nextSnapshot?.({
+    nextSnapshots[0]?.({
       docs: [
         {
           id: "show-1",
@@ -385,8 +434,8 @@ describe("roadie service", () => {
             roadies: true,
             venueId: "venue-1",
             artistId: "artist-1",
-            totalRoadies: 3,
-            bookedRoadies: 1,
+            roadiesCount: 3,
+            roadiesBooked: 1,
             bandName: "Beta",
             lat: 41.9,
             lng: -87.63,
@@ -394,27 +443,31 @@ describe("roadie service", () => {
         },
       ],
     });
+    nextSnapshots[1]?.({ docs: [] });
+    nextSnapshots[2]?.({ docs: [] });
 
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(onError).toHaveBeenCalledWith(
-      expect.objectContaining({ message: "Failed to process roadie show updates." }),
+      expect.objectContaining({
+        message: "Failed to process roadie show updates.",
+      }),
     );
   });
 
   it("forwards snapshot listener errors", () => {
-    let snapshotError: ((error: Error) => void) | undefined;
+    const snapshotErrors: Array<(error: Error) => void> = [];
     const callbackError = new Error("listener-broke");
 
     onSnapshotMock.mockImplementation((_query, _onNext, onError) => {
-      snapshotError = onError;
+      snapshotErrors.push(onError);
       return jest.fn();
     });
 
     const onError = jest.fn();
     subscribeRoadieShows({ lat: 41.9, lng: -87.63 }, 30, jest.fn(), onError);
 
-    snapshotError?.(callbackError);
+    snapshotErrors[0]?.(callbackError);
 
     expect(onError).toHaveBeenCalledWith(callbackError);
   });
@@ -434,19 +487,61 @@ describe("roadie service", () => {
         },
       ],
     });
+    getDocsMock.mockResolvedValueOnce({
+      docs: [
+        {
+          id: "roadie-object",
+          ref: { path: "artists/a/shows/roadie-object" },
+          data: () => ({
+            roadies: { enabled: true, loadIn: { requiredCount: 1, acceptedCount: 0 } },
+            lat: 41.9,
+            lng: -87.63,
+          }),
+        },
+        {
+          id: "non-roadie-object",
+          ref: { path: "artists/a/shows/non-roadie-object" },
+          data: () => ({ roadies: { enabled: false }, lat: 41.9, lng: -87.63 }),
+        },
+      ],
+    });
+    getDocsMock.mockResolvedValueOnce({
+      docs: [
+        {
+          id: "roadie-object-implicit",
+          ref: { path: "artists/a/shows/roadie-object-implicit" },
+          data: () => ({
+            roadies: { loadIn: { requiredCount: 1, acceptedCount: 0 } },
+            lat: 41.9,
+            lng: -87.63,
+          }),
+        },
+        {
+          id: "non-roadie-implicit",
+          ref: { path: "artists/a/shows/non-roadie-implicit" },
+          data: () => ({ roadies: { enabled: false }, lat: 41.9, lng: -87.63 }),
+        },
+      ],
+    });
 
     const fetchResults = await fetchRoadieShows({ lat: 41.9, lng: -87.63 }, 30);
-    expect(fetchResults.map((show) => show.id)).toEqual(["roadie"]);
+    const fetchedIds = fetchResults.map((show) => show.id);
+    expect(fetchedIds).toEqual(
+      expect.arrayContaining(["roadie", "roadie-object", "roadie-object-implicit"]),
+    );
+    expect(fetchedIds).not.toEqual(
+      expect.arrayContaining(["non-roadie", "non-roadie-object", "non-roadie-implicit"]),
+    );
 
-    let nextSnapshot: ((snapshot: { docs: any[] }) => void) | undefined;
+    const nextSnapshots: Array<(snapshot: { docs: any[] }) => void> = [];
     onSnapshotMock.mockImplementation((_query, onNext) => {
-      nextSnapshot = onNext;
+      nextSnapshots.push(onNext);
       return jest.fn();
     });
     const onShows = jest.fn(async () => undefined);
 
     subscribeRoadieShows({ lat: 41.9, lng: -87.63 }, 30, onShows);
-    nextSnapshot?.({
+    nextSnapshots[0]?.({
       docs: [
         {
           id: "live-roadie",
@@ -460,18 +555,84 @@ describe("roadie service", () => {
         },
       ],
     });
+    nextSnapshots[1]?.({
+      docs: [
+        {
+          id: "live-roadie-object",
+          ref: { path: "artists/a/shows/live-roadie-object" },
+          data: () => ({ roadies: { enabled: true }, lat: 41.9, lng: -87.63 }),
+        },
+        {
+          id: "live-non-roadie-object",
+          ref: { path: "artists/a/shows/live-non-roadie-object" },
+          data: () => ({ roadies: { enabled: false }, lat: 41.9, lng: -87.63 }),
+        },
+      ],
+    });
+    nextSnapshots[2]?.({
+      docs: [
+        {
+          id: "live-roadie-object-implicit",
+          ref: { path: "artists/a/shows/live-roadie-object-implicit" },
+          data: () => ({ roadies: { loadOut: { requiredCount: 1 } }, lat: 41.9, lng: -87.63 }),
+        },
+        {
+          id: "live-non-roadie-implicit",
+          ref: { path: "artists/a/shows/live-non-roadie-implicit" },
+          data: () => ({ roadies: { enabled: false }, lat: 41.9, lng: -87.63 }),
+        },
+      ],
+    });
 
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(onShows).toHaveBeenCalledWith(
-      expect.arrayContaining([expect.objectContaining({ id: "live-roadie" })]),
+      expect.arrayContaining([
+        expect.objectContaining({ id: "live-roadie" }),
+        expect.objectContaining({ id: "live-roadie-object-implicit" }),
+      ]),
     );
     expect(onShows).not.toHaveBeenCalledWith(
-      expect.arrayContaining([expect.objectContaining({ id: "live-non-roadie" })]),
+      expect.arrayContaining([
+        expect.objectContaining({ id: "live-non-roadie" }),
+        expect.objectContaining({ id: "live-non-roadie-object" }),
+        expect.objectContaining({ id: "live-non-roadie-implicit" }),
+      ]),
     );
   });
 
-  it("accepts a roadie job by updating show applicants", async () => {
+  it("accepts a shift with assignment doc as source of truth and updates projection", async () => {
+    const txGet = jest.fn(async (ref: { path: string }) => {
+      if (ref.path.endsWith("/roadieAssignments/roadie-1_loadIn")) {
+        return {
+          exists: (): boolean => false,
+          data: () => ({}),
+        };
+      }
+      return {
+        id: "show-1",
+        exists: (): boolean => true,
+        data: () => ({
+          artistId: "artist-1",
+          roadies: {
+            enabled: true,
+            priceCents: 12500,
+            loadIn: { requiredCount: 2, acceptedCount: 0, startsAt: new Date("2026-04-04T10:00:00Z") },
+          },
+        }),
+      };
+    });
+    const txSet = jest.fn();
+    const txUpdate = jest.fn();
+
+    runTransactionMock.mockImplementation(async (_db, transactionFn) =>
+      transactionFn({
+        get: txGet,
+        set: txSet,
+        update: txUpdate,
+      }),
+    );
+
     await acceptRoadieJob(
       {
         id: "show-1",
@@ -483,39 +644,103 @@ describe("roadie service", () => {
         displayName: "Roadie",
         phone: "312-555-1111",
       },
+      "loadIn",
     );
 
-    expect(doc).toHaveBeenCalledWith({ id: "db" }, "artists/a1/shows/show-1");
-    expect(updateDoc).toHaveBeenCalledWith(
-      { path: "artists/a1/shows/show-1" },
+    expect(runTransaction).toHaveBeenCalledWith({ id: "db" }, expect.any(Function));
+    expect(txSet).toHaveBeenCalledWith(
       expect.objectContaining({
-        lastRoadieAcceptedUid: "roadie-1",
-        lastRoadieAcceptedAt: "ts",
+        path: "artists/a1/shows/show-1/roadieAssignments/roadie-1_loadIn",
+      }),
+      expect.objectContaining({
+        roadieId: "roadie-1",
+        showId: "show-1",
+        status: "accepted",
+        shiftType: "loadIn",
+        priceCentsSnapshot: 12500,
+      }),
+      { merge: true },
+    );
+    expect(txUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ path: "artists/a1/shows/show-1" }),
+      expect.objectContaining({
+        "roadieApplicants.roadie-1_loadIn": expect.objectContaining({
+          uid: "roadie-1",
+          status: "accepted",
+          shiftType: "loadIn",
+        }),
+        "roadies.loadIn.acceptedCount": { __increment: 1 },
+        "roadies.loadIn.status": "OPEN",
+        lastRoadieAcceptedShiftType: "loadIn",
       }),
     );
-    expect(serverTimestamp).toHaveBeenCalledTimes(2);
+    expect(incrementMock).toHaveBeenCalledWith(1);
   });
 
-  it("accepts a roadie job with fallback user fields", async () => {
-    await acceptRoadieJob(
-      {
-        id: "show-2",
-        path: "artists/a2/shows/show-2",
-      },
-      {
-        uid: "roadie-2",
-      },
-    );
-
-    expect(updateDoc).toHaveBeenCalledWith(
-      { path: "artists/a2/shows/show-2" },
-      expect.objectContaining({
-        "roadieApplicants.roadie-2": expect.objectContaining({
-          displayName: "",
-          email: "",
-          phone: "",
+  it("throws when shift is full before acceptance", async () => {
+    runTransactionMock.mockImplementation(async (_db, transactionFn) =>
+      transactionFn({
+        get: jest.fn(async (ref: { path: string }) => {
+          if (ref.path.includes("/roadieAssignments/")) {
+            return { exists: (): boolean => false, data: () => ({}) };
+          }
+          return {
+            id: "show-full",
+            exists: (): boolean => true,
+            data: () => ({
+              roadies: {
+                enabled: true,
+                loadOut: { requiredCount: 1, acceptedCount: 1 },
+              },
+            }),
+          };
         }),
+        set: jest.fn(),
+        update: jest.fn(),
       }),
     );
+
+    await expect(
+      acceptRoadieJob(
+        { id: "show-full", path: "artists/a1/shows/show-full" },
+        { uid: "roadie-2" },
+        "loadOut",
+      ),
+    ).rejects.toThrow("already full");
+  });
+
+  it("throws when assignment is already accepted for the shift", async () => {
+    runTransactionMock.mockImplementation(async (_db, transactionFn) =>
+      transactionFn({
+        get: jest.fn(async (ref: { path: string }) => {
+          if (ref.path.includes("/roadieAssignments/")) {
+            return {
+              exists: (): boolean => true,
+              data: () => ({ status: "accepted" }),
+            };
+          }
+          return {
+            id: "show-dup",
+            exists: (): boolean => true,
+            data: () => ({
+              roadies: {
+                enabled: true,
+                loadIn: { requiredCount: 2, acceptedCount: 0 },
+              },
+            }),
+          };
+        }),
+        set: jest.fn(),
+        update: jest.fn(),
+      }),
+    );
+
+    await expect(
+      acceptRoadieJob(
+        { id: "show-dup", path: "artists/a1/shows/show-dup" },
+        { uid: "roadie-dup" },
+        "loadIn",
+      ),
+    ).rejects.toThrow("already accepted");
   });
 });

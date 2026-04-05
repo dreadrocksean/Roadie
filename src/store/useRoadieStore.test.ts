@@ -308,7 +308,7 @@ describe("useRoadieStore", () => {
       } as any,
     });
 
-    const success = await useRoadieStore.getState().acceptSelectedShow();
+    const success = await useRoadieStore.getState().acceptSelectedShow("loadIn");
 
     expect(success).toBe(false);
     expect(useRoadieStore.getState().error).toContain("logged in");
@@ -339,12 +339,55 @@ describe("useRoadieStore", () => {
       ] as any,
     });
 
-    const success = await useRoadieStore.getState().acceptSelectedShow();
+    const success = await useRoadieStore.getState().acceptSelectedShow("loadIn");
 
     expect(success).toBe(true);
     expect(acceptRoadieJobMock).toHaveBeenCalledTimes(1);
-    expect(useRoadieStore.getState().selectedShow).toBeNull();
+    expect(useRoadieStore.getState().selectedShow).not.toBeNull();
     expect(useRoadieStore.getState().acceptedShowPaths).toEqual(["artists/a/shows/s1"]);
+  });
+
+  it("accepts a specific shift and keeps the selected show open", async () => {
+    useRoadieStore.setState({
+      user: { uid: "u1", displayName: "Roadie" },
+      selectedShow: {
+        id: "s1",
+        path: "artists/a/shows/s1",
+        requiredRoadies: 1,
+        distanceMiles: 1,
+        venue: null,
+        artist: null,
+        coordinates: { lat: 1, lng: 1 },
+      } as any,
+      shows: [
+        {
+          id: "s1",
+          path: "artists/a/shows/s1",
+          requiredRoadies: 1,
+          distanceMiles: 1,
+          venue: null,
+          artist: null,
+          coordinates: { lat: 1, lng: 1 },
+        },
+      ] as any,
+    });
+
+    const success = await useRoadieStore.getState().acceptSelectedShow("loadIn");
+
+    expect(success).toBe(true);
+    expect(acceptRoadieJobMock).toHaveBeenCalledWith(
+      expect.objectContaining({ path: "artists/a/shows/s1" }),
+      expect.objectContaining({ uid: "u1" }),
+      "loadIn",
+    );
+    expect(useRoadieStore.getState().selectedShow).not.toBeNull();
+    expect(useRoadieStore.getState().shows[0]?.roadieApplicants?.u1_loadIn).toEqual(
+      expect.objectContaining({
+        uid: "u1",
+        status: "accepted",
+        shiftType: "loadIn",
+      }),
+    );
   });
 
   it("handles accept errors", async () => {
@@ -363,7 +406,7 @@ describe("useRoadieStore", () => {
       } as any,
     });
 
-    const success = await useRoadieStore.getState().acceptSelectedShow();
+    const success = await useRoadieStore.getState().acceptSelectedShow("loadIn");
 
     expect(success).toBe(false);
     expect(useRoadieStore.getState().error).toBe("accept-failed");
@@ -508,15 +551,16 @@ describe("useRoadieStore", () => {
       ] as any,
     });
 
-    const success = await useRoadieStore.getState().acceptSelectedShow();
+    const success = await useRoadieStore.getState().acceptSelectedShow("loadIn");
 
     expect(success).toBe(true);
     const nextShows = useRoadieStore.getState().shows;
-    expect(nextShows[0].roadieApplicants?.u2).toEqual(
+    expect(nextShows[0].roadieApplicants?.u2_loadIn).toEqual(
       expect.objectContaining({
         displayName: "",
         email: "",
         phone: "",
+        shiftType: "loadIn",
       }),
     );
     expect(nextShows[1].roadieApplicants).toBeUndefined();
@@ -538,7 +582,7 @@ describe("useRoadieStore", () => {
       } as any,
     });
 
-    const success = await useRoadieStore.getState().acceptSelectedShow();
+    const success = await useRoadieStore.getState().acceptSelectedShow("loadIn");
 
     expect(success).toBe(false);
     expect(useRoadieStore.getState().error).toBe("Failed to accept roadie job.");

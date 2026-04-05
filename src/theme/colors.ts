@@ -11,6 +11,7 @@ export const palette = {
   accentRed: "#D62E2E",
   accentRedSoft: "rgba(214,46,46,0.12)",
   accentBlue: "#1C6CFF",
+  accentGreen: "#2FB66D",
   overlayDark: "rgba(0,0,0,0.35)",
   overlayLight: "rgba(255,255,255,0.65)",
 } as const;

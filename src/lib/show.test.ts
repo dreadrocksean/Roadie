@@ -7,6 +7,7 @@ import {
   getLoadOutTime,
   getRequiredRoadies,
   getRoadiePay,
+  getUserRoadieShiftStatus,
   getUserRoadieStatus,
   getVenueAddress,
   isAwardedToUser,
@@ -22,7 +23,9 @@ describe("show helpers", () => {
     const now = new Date();
     expect(normalizeDate(now)).toBe(now);
 
-    const fromTimestamp = normalizeDate({ toDate: () => new Date("2026-01-01T00:00:00Z") });
+    const fromTimestamp = normalizeDate({
+      toDate: () => new Date("2026-01-01T00:00:00Z"),
+    });
     expect(fromTimestamp?.toISOString()).toBe("2026-01-01T00:00:00.000Z");
 
     expect(normalizeDate("not-a-date")).toBeNull();
@@ -38,9 +41,20 @@ describe("show helpers", () => {
   });
 
   it("computes required roadies safely", () => {
-    expect(getRequiredRoadies({ totalRoadies: 4, bookedRoadies: 1 })).toBe(3);
-    expect(getRequiredRoadies({ totalRoadies: 4, roadiesBooked: 4 })).toBe(0);
-    expect(getRequiredRoadies({ totalRoadies: 1, bookedRoadies: 99 })).toBe(0);
+    expect(
+      getRequiredRoadies({
+        roadies: {
+          enabled: true,
+          loadIn: { requiredCount: 2, acceptedCount: 1 },
+          loadOut: { requiredCount: 3, acceptedCount: 2 },
+        },
+      } as any),
+    ).toBe(2);
+    expect(getRequiredRoadies({ roadiesLoadInCount: 2, roadiesLoadOutCount: 3, roadiesBooked: 1 })).toBe(4);
+    expect(getRequiredRoadies({ roadiesCount: 6, roadiesBooked: 2 })).toBe(4);
+    expect(getRequiredRoadies({ roadiesCount: 4, roadiesBooked: 1 })).toBe(3);
+    expect(getRequiredRoadies({ roadiesCount: 4, roadiesBooked: 4 })).toBe(0);
+    expect(getRequiredRoadies({ roadiesCount: 1, roadiesBooked: 99 })).toBe(0);
     expect(getRequiredRoadies({} as any)).toBe(0);
   });
 
@@ -56,18 +70,25 @@ describe("show helpers", () => {
     expect(getBandPhone({}, undefined)).toBe("Not provided");
   });
 
-  it("gets pay fields and formats currency", () => {
-    expect(getRoadiePay({ roadiePay: 200 })).toBe(200);
-    expect(getRoadiePay({ payAmount: 250 })).toBe(250);
-    expect(getRoadiePay({ artistFee: 300 })).toBe(300);
-    expect(getRoadiePay({})).toBeNull();
+  it("gets roadiePrice and formats currency", () => {
+    expect(
+      getRoadiePay({ roadies: { enabled: true, priceCents: 7550 } } as any),
+    ).toBe(75.5);
+    expect(getRoadiePay({ roadiePrice: 200 } as any)).toBe(200);
+    expect(getRoadiePay({ roadiePrice: "200" as any } as any)).toBe(200);
+    expect(getRoadiePay({ roadiePrice: "$2,450.50" as any } as any)).toBe(2450.5);
+    expect(getRoadiePay({ roadiePrice: { amount: "175" } as any } as any)).toBe(175);
+    expect(getRoadiePay({ payAmount: 200 } as any)).toBeNull();
+    expect(getRoadiePay({} as any)).toBeNull();
 
     expect(formatCurrency(100)).toContain("$");
     expect(formatCurrency(null)).toBe("TBD");
   });
 
   it("gets venue address and load times", () => {
-    expect(getVenueAddress({ venueAddress: "123 Main" }, null)).toBe("123 Main");
+    expect(getVenueAddress({ venueAddress: "123 Main" }, null)).toBe(
+      "123 Main",
+    );
     expect(
       getVenueAddress(
         {},
@@ -92,8 +113,28 @@ describe("show helpers", () => {
     ).toBe("789 Pine");
     expect(getVenueAddress({}, null)).toBe("Address unavailable");
 
-    expect(getLoadInTime({ loadInTime: new Date("2026-04-02T12:00:00Z") })).toContain(":");
-    expect(getLoadOutTime({ scheduledStop: new Date("2026-04-02T14:00:00Z") })).toContain(":");
+    expect(
+      getLoadInTime({ loadInTime: new Date("2026-04-02T12:00:00Z") }),
+    ).toContain(":");
+    expect(
+      getLoadInTime({
+        roadies: {
+          enabled: true,
+          loadIn: { startsAt: new Date("2026-04-02T10:00:00Z") },
+        },
+      } as any),
+    ).toContain(":");
+    expect(
+      getLoadOutTime({ scheduledStop: new Date("2026-04-02T14:00:00Z") }),
+    ).toContain(":");
+    expect(
+      getLoadOutTime({
+        roadies: {
+          enabled: true,
+          loadOut: { startsAt: new Date("2026-04-02T16:00:00Z") },
+        },
+      } as any),
+    ).toContain(":");
   });
 
   it("gets roadie status and awarded state", () => {
@@ -111,12 +152,31 @@ describe("show helpers", () => {
         "me",
       ),
     ).toBe("accepted");
-    expect(getUserRoadieStatus({ awardedRoadieUids: ["me"] } as any, "me")).toBe("awarded");
-    expect(getUserRoadieStatus({ roadieAwardedUids: ["me"] } as any, "me")).toBe("awarded");
+    expect(
+      getUserRoadieStatus({ awardedRoadieUids: ["me"] } as any, "me"),
+    ).toBe("awarded");
+    expect(
+      getUserRoadieStatus({ roadieAwardedUids: ["me"] } as any, "me"),
+    ).toBe("awarded");
     expect(getUserRoadieStatus({} as any, "me")).toBeNull();
 
-    expect(isAwardedToUser({ awardedRoadieUids: ["me"] } as any, "me")).toBe(true);
+    expect(isAwardedToUser({ awardedRoadieUids: ["me"] } as any, "me")).toBe(
+      true,
+    );
     expect(isAwardedToUser({} as any, "me")).toBe(false);
+  });
+
+  it("gets shift-specific roadie status with keyed applicants", () => {
+    const show = {
+      roadieApplicants: {
+        me_loadIn: { uid: "me", status: "accepted", shiftType: "loadIn" },
+        me_loadOut: { uid: "me", status: "awarded", shiftType: "loadOut" },
+      },
+    } as any;
+
+    expect(getUserRoadieShiftStatus(show, "me", "loadIn")).toBe("accepted");
+    expect(getUserRoadieShiftStatus(show, "me", "loadOut")).toBe("awarded");
+    expect(getUserRoadieStatus(show, "me")).toBe("awarded");
   });
 
   it("summarizes admin stats", () => {
@@ -129,7 +189,7 @@ describe("show helpers", () => {
         venue: null,
         artist: null,
         coordinates: { lat: 1, lng: 1 },
-        roadiePay: 100,
+        roadiePrice: 100,
       },
       {
         id: "2",
@@ -139,11 +199,15 @@ describe("show helpers", () => {
         venue: null,
         artist: null,
         coordinates: { lat: 1, lng: 1 },
-        payAmount: 200,
+        roadiePrice: 200,
       },
     ];
 
-    const summary = summarizeAdminStats(shows as any, ["artists/a/shows/1"], ["artists/a/shows/2"]);
+    const summary = summarizeAdminStats(
+      shows as any,
+      ["artists/a/shows/1"],
+      ["artists/a/shows/2"],
+    );
 
     expect(summary.totalRoadieShows).toBe(2);
     expect(summary.openSpots).toBe(3);
@@ -166,7 +230,11 @@ describe("show helpers", () => {
       },
     ];
 
-    const summary = summarizeAdminStats(shows as any, [], ["artists/a/shows/3"]);
+    const summary = summarizeAdminStats(
+      shows as any,
+      [],
+      ["artists/a/shows/3"],
+    );
 
     expect(summary.averagePay).toBe(0);
     expect(summary.awardedPay).toBe(0);

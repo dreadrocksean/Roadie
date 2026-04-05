@@ -2,7 +2,12 @@ import * as Device from "expo-device";
 import * as Location from "expo-location";
 import { create } from "zustand";
 
-import { isAwardedToUser, getUserRoadieStatus } from "../lib/show";
+import {
+  getRoadieShiftAccepted,
+  getRoadieShiftRequired,
+  isAwardedToUser,
+  getUserRoadieStatus,
+} from "../lib/show";
 import {
   acceptRoadieJob,
   fetchRoadieShows,
@@ -13,6 +18,7 @@ import type {
   GeoPointLite,
   HydratedShow,
   RoadieApplicant,
+  RoadieShiftType,
   UserProfile,
 } from "../types";
 
@@ -60,7 +66,7 @@ type RoadieStore = {
   refreshShows: () => Promise<void>;
   startShowsListener: () => Promise<void>;
   stopShowsListener: () => void;
-  acceptSelectedShow: () => Promise<boolean>;
+  acceptSelectedShow: (shiftType: RoadieShiftType) => Promise<boolean>;
 };
 
 export const useRoadieStore = create<RoadieStore>((set, get) => {
@@ -255,7 +261,7 @@ export const useRoadieStore = create<RoadieStore>((set, get) => {
       set({ showsUnsubscribe: null });
     },
 
-    acceptSelectedShow: async () => {
+    acceptSelectedShow: async (shiftType) => {
       const selectedShow = get().selectedShow;
       const user = get().user;
 
@@ -273,35 +279,73 @@ export const useRoadieStore = create<RoadieStore>((set, get) => {
       }
 
       try {
-        await acceptRoadieJob(selectedShow, user);
+        await acceptRoadieJob(selectedShow, user, shiftType);
 
         set((state) => {
+          const applicantKey = `${user.uid}_${shiftType}`;
           const acceptedApplicant: RoadieApplicant = {
             uid: user.uid,
             status: "accepted",
             displayName: user.displayName ?? "",
             email: user.email ?? "",
             phone: user.phone ?? "",
+            shiftType,
           };
 
-          const updatedShows = state.shows.map((show) =>
-            show.path === selectedShow.path
-              ? {
-                  ...show,
-                  roadieApplicants: {
-                    ...(show.roadieApplicants ?? {}),
-                    [user.uid]: acceptedApplicant,
-                  },
-                }
-              : show,
-          );
+          const updatedShows = state.shows.map((show) => {
+            if (show.path !== selectedShow.path) {
+              return show;
+            }
+
+            const currentAcceptedCount = getRoadieShiftAccepted(show, shiftType);
+            const requiredCount = getRoadieShiftRequired(show, shiftType);
+            const nextAcceptedCount = currentAcceptedCount + 1;
+            const existingRoadiesConfig =
+              show.roadies && typeof show.roadies === "object" ? show.roadies : {};
+            const existingShiftConfig =
+              shiftType === "loadIn"
+                ? existingRoadiesConfig.loadIn ?? {}
+                : existingRoadiesConfig.loadOut ?? {};
+            const nextShiftConfig = {
+              ...existingShiftConfig,
+              acceptedCount: nextAcceptedCount,
+              status: nextAcceptedCount >= requiredCount ? "FULL" : "OPEN",
+            };
+            const nextRoadiesConfig =
+              shiftType === "loadIn"
+                ? {
+                    ...existingRoadiesConfig,
+                    enabled: existingRoadiesConfig.enabled ?? true,
+                    loadIn: nextShiftConfig,
+                  }
+                : {
+                    ...existingRoadiesConfig,
+                    enabled: existingRoadiesConfig.enabled ?? true,
+                    loadOut: nextShiftConfig,
+                  };
+
+            return {
+              ...show,
+              roadies:
+                show.roadies && typeof show.roadies === "object"
+                  ? nextRoadiesConfig
+                  : show.roadies,
+              roadieApplicants: {
+                ...(show.roadieApplicants ?? {}),
+                [applicantKey]: acceptedApplicant,
+              },
+            };
+          });
+          const updatedSelectedShow =
+            updatedShows.find((show) => show.path === selectedShow.path) ??
+            selectedShow;
 
           return {
             shows: updatedShows,
             acceptedShowPaths: Array.from(
               new Set([...state.acceptedShowPaths, selectedShow.path]),
             ),
-            selectedShow: null,
+            selectedShow: updatedSelectedShow,
             error: null,
           };
         });

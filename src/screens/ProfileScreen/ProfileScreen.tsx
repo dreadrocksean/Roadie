@@ -5,7 +5,6 @@ import { Image, Text, TextInput, View } from "react-native";
 import { Button } from "react-native-paper";
 
 import {
-  collection,
   FIREBASE_STORAGE,
   FIRESTORE_DB,
   doc,
@@ -32,7 +31,6 @@ const ProfileScreen = () => {
   const [bio, setBio] = useState("");
   const [address, setAddress] = useState("");
   const [photoURL, setPhotoURL] = useState<string | null>(null);
-  const [draftRoadieId, setDraftRoadieId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -42,11 +40,6 @@ const ProfileScreen = () => {
     setBio(user?.bio ?? "");
     setAddress(user?.address ?? "");
     setPhotoURL(user?.photoURL ?? null);
-    if (!user) {
-      setDraftRoadieId(null);
-    } else if (user.roadieId?.trim()) {
-      setDraftRoadieId(user.roadieId.trim());
-    }
   }, [user]);
 
   if (!user) {
@@ -120,10 +113,8 @@ const ProfileScreen = () => {
       const nextBio = bio.trim();
       const nextAddress = address.trim();
       const existingRoadieId = user.roadieId?.trim();
-      const roadieId = existingRoadieId || draftRoadieId || doc(collection(FIRESTORE_DB, "roadies")).id;
-      if (!existingRoadieId && !draftRoadieId) {
-        setDraftRoadieId(roadieId);
-      }
+      const roadieId = user.uid;
+      const shouldSetCreatedAt = existingRoadieId !== roadieId;
 
       await setDoc(
         doc(FIRESTORE_DB, "roadies", roadieId),
@@ -136,7 +127,7 @@ const ProfileScreen = () => {
           address: nextAddress,
           photoURL,
           updatedAt: serverTimestamp(),
-          ...(existingRoadieId ? {} : { createdAt: serverTimestamp() }),
+          ...(shouldSetCreatedAt ? { createdAt: serverTimestamp() } : {}),
         },
         { merge: true },
       );
@@ -171,9 +162,7 @@ const ProfileScreen = () => {
     }
   };
 
-  const profileActionLabel = (user.roadieId ?? draftRoadieId ?? "").trim()
-    ? "Update Profile"
-    : "Save Profile";
+  const profileActionLabel = user.roadieId?.trim() ? "Update Profile" : "Save Profile";
 
   return (
     <View style={styles.container}>

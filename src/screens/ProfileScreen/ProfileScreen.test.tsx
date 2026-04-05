@@ -136,7 +136,7 @@ describe("ProfileScreen", () => {
 
     await waitFor(() => {
       expect(setDoc).toHaveBeenCalledWith(
-        expect.objectContaining({ path: "roadies/generated-roadie-id" }),
+        expect.objectContaining({ path: "roadies/u1" }),
         expect.objectContaining({
           userId: "u1",
           email: "u1@example.com",
@@ -154,7 +154,7 @@ describe("ProfileScreen", () => {
           phone: "222",
           bio: "Road veteran",
           address: "123 Main St",
-          roadieId: "generated-roadie-id",
+          roadieId: "u1",
         }),
         { merge: true },
       );
@@ -164,7 +164,7 @@ describe("ProfileScreen", () => {
           phone: "222",
           bio: "Road veteran",
           address: "123 Main St",
-          roadieId: "generated-roadie-id",
+          roadieId: "u1",
         }),
       );
     });

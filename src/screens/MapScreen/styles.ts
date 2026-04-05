@@ -110,9 +110,66 @@ export default StyleSheet.create({
     fontWeight: "500",
     color: palette.white,
   },
+  modalMuted: {
+    color: palette.gray300,
+    fontWeight: "400",
+  },
+  shiftList: {
+    marginTop: 8,
+    gap: 10,
+  },
+  shiftCard: {
+    borderWidth: 1,
+    borderColor: palette.gray500,
+    borderRadius: 12,
+    padding: 10,
+    backgroundColor: palette.gray900,
+  },
+  shiftHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  shiftTitle: {
+    color: palette.white,
+    fontWeight: "700",
+    fontSize: 15,
+  },
+  shiftStatus: {
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  shiftStatusOpen: {
+    color: palette.accentBlue,
+  },
+  shiftStatusNeutral: {
+    color: palette.gray300,
+  },
+  shiftStatusFull: {
+    color: palette.accentRed,
+  },
+  shiftStatusAccepted: {
+    color: palette.accentGreen,
+  },
+  shiftStatusAwarded: {
+    color: palette.accentBlue,
+  },
+  shiftAcceptButton: {
+    marginTop: 8,
+    borderRadius: 10,
+    alignItems: "center",
+    paddingVertical: 10,
+  },
+  shiftAcceptButtonEnabled: {
+    backgroundColor: palette.accentBlue,
+  },
+  shiftAcceptButtonDisabled: {
+    backgroundColor: palette.gray700,
+  },
   modalActions: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    justifyContent: "flex-end",
     marginTop: 16,
     gap: 10,
   },
@@ -126,9 +183,6 @@ export default StyleSheet.create({
     backgroundColor: palette.gray700,
     borderWidth: 1,
     borderColor: palette.gray500,
-  },
-  acceptButton: {
-    backgroundColor: palette.accentRed,
   },
   cancelText: {
     color: palette.white,

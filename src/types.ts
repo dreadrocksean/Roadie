@@ -38,7 +38,27 @@ export type RoadieApplicant = {
   displayName?: string;
   email?: string;
   phone?: string;
+  shiftType?: RoadieShiftType;
   acceptedAt?: unknown;
+};
+
+export type RoadieShiftType = "loadIn" | "loadOut";
+
+export type RoadieShift = {
+  requiredCount?: number;
+  acceptedCount?: number;
+  startsAt?: unknown;
+  notes?: string;
+  status?: string;
+};
+
+export type RoadiesConfig = {
+  enabled?: boolean;
+  currency?: string;
+  priceCents?: number;
+  loadIn?: RoadieShift;
+  loadOut?: RoadieShift;
+  updatedAt?: unknown;
 };
 
 export type ShowDoc = {
@@ -47,10 +67,18 @@ export type ShowDoc = {
   artistId?: string;
   artistUserId?: string;
   venueId?: string;
-  roadies?: boolean;
+  roadies?: boolean | RoadiesConfig;
+  roadiesCount?: number;
+  roadiesLoadInCount?: number;
+  roadiesLoadOutCount?: number;
   totalRoadies?: number;
-  bookedRoadies?: number;
   roadiesBooked?: number;
+  roadiesConfirmedCount?: number;
+  roadiesNotes?: string;
+  roadiesLoadInTime?: unknown;
+  roadiesLoadOutTime?: unknown;
+  roadiesLoadInNotes?: string;
+  roadiesLoadOutNotes?: string;
   loadInTime?: unknown;
   loadOutTime?: unknown;
   scheduledStart?: unknown;
@@ -61,7 +89,7 @@ export type ShowDoc = {
   artistName?: string;
   bandPhone?: string;
   contactPhone?: string;
-  roadiePay?: number;
+  roadiePrice?: number;
   payAmount?: number;
   artistFee?: number;
   lat?: number;

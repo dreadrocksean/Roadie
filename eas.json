@@ -1,6 +1,7 @@
 {
   "cli": {
-    "version": ">= 18.4.0"
+    "version": ">= 18.4.0",
+    "appVersionSource": "remote"
   },
   "build": {
     "development": {
@@ -13,6 +14,16 @@
       "ios": {
         "simulator": true
       }
+    },
+    "preview": {
+      "distribution": "internal"
+    },
+    "play-internal": {
+      "distribution": "store",
+      "autoIncrement": true
+    },
+    "production": {
+      "autoIncrement": true
     }
   }
 }

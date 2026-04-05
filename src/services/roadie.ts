@@ -4,10 +4,11 @@ import {
   doc,
   getDoc,
   getDocs,
+  increment,
   onSnapshot,
   query,
+  runTransaction,
   serverTimestamp,
-  updateDoc,
   where,
 } from "../lib/firebase";
 import {
@@ -15,11 +16,20 @@ import {
   getVenueCoordinates,
   isWithinRadiusMiles,
 } from "../lib/geo";
-import { getBandName, getRequiredRoadies } from "../lib/show";
+import {
+  getBandName,
+  getRequiredRoadies,
+  getRoadiePay,
+  getRoadieShiftAccepted,
+  getRoadieShiftRequired,
+  isRoadiesEnabled,
+  normalizeDate,
+} from "../lib/show";
 import type {
   Artist,
   GeoPointLite,
   HydratedShow,
+  RoadieShiftType,
   ShowDoc,
   UserProfile,
   Venue,
@@ -37,6 +47,9 @@ type FirestoreShowSnapshotDoc = {
   id: string;
   ref: { path: string };
   data: () => Record<string, unknown>;
+};
+type FirestoreShowSnapshot = {
+  docs: readonly FirestoreShowSnapshotDoc[];
 };
 
 const logRoadieServiceError = (
@@ -84,7 +97,31 @@ const mapShowDoc = (
   ...(data as Omit<ShowDoc, "id" | "path">),
 });
 
-const isRoadieShow = (show: ShowDoc) => show.roadies === true;
+const isRoadieShow = (show: ShowDoc) => isRoadiesEnabled(show.roadies);
+
+const buildRoadieShowsQueries = () => {
+  const showsCollectionGroup = collectionGroup(FIRESTORE_DB, "shows");
+  return {
+    legacyRoadiesQuery: query(showsCollectionGroup, where("roadies", "==", true)),
+    configRoadiesQuery: query(
+      showsCollectionGroup,
+      where("roadies.enabled", "==", true),
+    ),
+    objectRoadiesQuery: query(showsCollectionGroup, where("roadies", "!=", false)),
+  };
+};
+
+const mergeSnapshotDocs = (
+  snapshots: FirestoreShowSnapshot[],
+): FirestoreShowSnapshotDoc[] => {
+  const docsByPath = new Map<string, FirestoreShowSnapshotDoc>();
+  snapshots.forEach((snapshot) => {
+    snapshot.docs.forEach((showDoc) => {
+      docsByPath.set(showDoc.ref.path, showDoc);
+    });
+  });
+  return Array.from(docsByPath.values());
+};
 
 const getVenueById = async (venueId: string): Promise<Venue | null> => {
   try {
@@ -217,17 +254,61 @@ const mapSnapshotDocsToShows = (
   return mappedShows.filter((show) => isRoadieShow(show));
 };
 
+const getShowDocRefFromPath = (showPath: string) =>
+  doc(FIRESTORE_DB, showPath);
+
+const getRoadieAssignmentRef = (
+  showPath: string,
+  assignmentId: string,
+) =>
+  doc(FIRESTORE_DB, `${showPath}/roadieAssignments/${assignmentId}`);
+
+const getShiftAcceptedCountFieldPath = (shiftType: RoadieShiftType) =>
+  shiftType === "loadIn"
+    ? "roadies.loadIn.acceptedCount"
+    : "roadies.loadOut.acceptedCount";
+
+const getShiftStatusFieldPath = (shiftType: RoadieShiftType) =>
+  shiftType === "loadIn" ? "roadies.loadIn.status" : "roadies.loadOut.status";
+
+const getShiftStartsAtSnapshot = (
+  show: ShowDoc,
+  shiftType: RoadieShiftType,
+) => {
+  const normalized = normalizeDate(
+    shiftType === "loadIn"
+      ? show.roadies && typeof show.roadies === "object"
+        ? show.roadies.loadIn?.startsAt ?? show.roadiesLoadInTime ?? show.loadInTime
+        : show.roadiesLoadInTime ?? show.loadInTime ?? show.scheduledStart
+      : show.roadies && typeof show.roadies === "object"
+        ? show.roadies.loadOut?.startsAt ?? show.roadiesLoadOutTime ?? show.loadOutTime
+        : show.roadiesLoadOutTime ?? show.loadOutTime ?? show.scheduledStop,
+  );
+  return normalized ?? null;
+};
+
 export const fetchRoadieShows = async (
   center: GeoPointLite,
   radiusMiles: number,
   options: RoadieShowLoadOptions = {},
 ): Promise<HydratedShow[]> => {
-  const showsSnapshot = await getDocs(
-    query(collectionGroup(FIRESTORE_DB, "shows"), where("roadies", "==", true)),
-  );
+  const { legacyRoadiesQuery, configRoadiesQuery, objectRoadiesQuery } =
+    buildRoadieShowsQueries();
+  const [legacyShowsSnapshot, configShowsSnapshot, objectShowsSnapshot] =
+    await Promise.all([
+    getDocs(legacyRoadiesQuery),
+    getDocs(configRoadiesQuery),
+    getDocs(objectRoadiesQuery),
+  ]);
 
   return hydrateRoadieShows(
-    mapSnapshotDocsToShows(showsSnapshot.docs),
+    mapSnapshotDocsToShows(
+      mergeSnapshotDocs([
+        legacyShowsSnapshot,
+        configShowsSnapshot,
+        objectShowsSnapshot,
+      ]),
+    ),
     center,
     radiusMiles,
     options,
@@ -240,54 +321,172 @@ export const subscribeRoadieShows = (
   onShows: (shows: HydratedShow[]) => Promise<void> | void,
   onError?: (error: Error) => void,
   options: RoadieShowLoadOptions = {},
-): (() => void) =>
-  onSnapshot(
-    query(collectionGroup(FIRESTORE_DB, "shows"), where("roadies", "==", true)),
-    (showsSnapshot) => {
-      const processSnapshot = async () => {
-        try {
-          const roadieShows = mapSnapshotDocsToShows(showsSnapshot.docs);
-          const hydratedShows = await hydrateRoadieShows(
-            roadieShows,
-            center,
-            radiusMiles,
-            options,
-          );
-          await onShows(hydratedShows);
-        } catch (error) {
-          logRoadieServiceError("subscribeRoadieShows.processSnapshot", error);
-          onError?.(
-            error instanceof Error
-              ? error
-              : new Error("Failed to process roadie show updates."),
-          );
-        }
-      };
+): (() => void) => {
+  const { legacyRoadiesQuery, configRoadiesQuery, objectRoadiesQuery } =
+    buildRoadieShowsQueries();
+  const docsByQuery = {
+    legacy: new Map<string, FirestoreShowSnapshotDoc>(),
+    config: new Map<string, FirestoreShowSnapshotDoc>(),
+    object: new Map<string, FirestoreShowSnapshotDoc>(),
+  };
 
+  const processSnapshot = async () => {
+    try {
+      const mergedDocs = Array.from(
+        new Map([
+          ...docsByQuery.legacy.entries(),
+          ...docsByQuery.config.entries(),
+          ...docsByQuery.object.entries(),
+        ]).values(),
+      );
+      const roadieShows = mapSnapshotDocsToShows(mergedDocs);
+      const hydratedShows = await hydrateRoadieShows(
+        roadieShows,
+        center,
+        radiusMiles,
+        options,
+      );
+      await onShows(hydratedShows);
+    } catch (error) {
+      logRoadieServiceError("subscribeRoadieShows.processSnapshot", error);
+      onError?.(
+        error instanceof Error
+          ? error
+          : new Error("Failed to process roadie show updates."),
+      );
+    }
+  };
+
+  const handleSnapshot =
+    (key: keyof typeof docsByQuery) => (showsSnapshot: FirestoreShowSnapshot) => {
+      const nextDocsByPath = new Map<string, FirestoreShowSnapshotDoc>();
+      showsSnapshot.docs.forEach((showDoc) => {
+        nextDocsByPath.set(showDoc.ref.path, showDoc);
+      });
+      docsByQuery[key] = nextDocsByPath;
       void processSnapshot();
-    },
-    (error) => {
-      logRoadieServiceError("subscribeRoadieShows.onSnapshot", error);
-      onError?.(error);
-    },
+    };
+
+  const handleSnapshotError = (error: Error) => {
+    logRoadieServiceError("subscribeRoadieShows.onSnapshot", error);
+    onError?.(error);
+  };
+
+  const unsubscribeLegacy = onSnapshot(
+    legacyRoadiesQuery,
+    handleSnapshot("legacy"),
+    handleSnapshotError,
   );
+  const unsubscribeConfig = onSnapshot(
+    configRoadiesQuery,
+    handleSnapshot("config"),
+    handleSnapshotError,
+  );
+  const unsubscribeObject = onSnapshot(
+    objectRoadiesQuery,
+    handleSnapshot("object"),
+    handleSnapshotError,
+  );
+
+  return () => {
+    unsubscribeLegacy();
+    unsubscribeConfig();
+    unsubscribeObject();
+  };
+};
 
 export const acceptRoadieJob = async (
   show: ShowDoc,
   user: UserProfile,
+  shiftType: RoadieShiftType,
 ): Promise<void> => {
-  const roadieApplicantPath = `roadieApplicants.${user.uid}`;
+  const showRef = getShowDocRefFromPath(show.path);
+  const showIdFromPath = show.path.split("/").filter(Boolean).slice(-1)[0] ?? show.id;
+  const showId = show.id || showIdFromPath;
+  const assignmentId = `${user.uid}_${shiftType}`;
+  const assignmentRef = getRoadieAssignmentRef(show.path, assignmentId);
+  const roadieApplicantPath = `roadieApplicants.${assignmentId}`;
+  const acceptedCountFieldPath = getShiftAcceptedCountFieldPath(shiftType);
+  const shiftStatusFieldPath = getShiftStatusFieldPath(shiftType);
 
-  await updateDoc(doc(FIRESTORE_DB, show.path), {
-    [roadieApplicantPath]: {
-      uid: user.uid,
-      status: "accepted",
-      displayName: user.displayName ?? "",
-      email: user.email ?? "",
-      phone: user.phone ?? "",
-      acceptedAt: serverTimestamp(),
-    },
-    lastRoadieAcceptedAt: serverTimestamp(),
-    lastRoadieAcceptedUid: user.uid,
+  await runTransaction(FIRESTORE_DB, async (transaction) => {
+    const [showSnapshot, assignmentSnapshot] = await Promise.all([
+      transaction.get(showRef),
+      transaction.get(assignmentRef),
+    ]);
+
+    if (!showSnapshot.exists()) {
+      throw new Error("This show is no longer available.");
+    }
+
+    const showData = showSnapshot.data() as Omit<ShowDoc, "id" | "path">;
+    const sourceShow: ShowDoc = {
+      id: showId,
+      path: show.path,
+      ...showData,
+    };
+    const requiredCount = getRoadieShiftRequired(sourceShow, shiftType);
+    const acceptedCount = getRoadieShiftAccepted(sourceShow, shiftType);
+
+    if (requiredCount <= 0) {
+      throw new Error("This shift is not currently accepting roadies.");
+    }
+
+    if (acceptedCount >= requiredCount) {
+      throw new Error("This shift is already full.");
+    }
+
+    const existingAssignmentStatus = assignmentSnapshot.exists()
+      ? (assignmentSnapshot.data()?.status as string | undefined)
+      : undefined;
+
+    if (existingAssignmentStatus === "accepted" || existingAssignmentStatus === "awarded") {
+      throw new Error("You already accepted this shift.");
+    }
+
+    const roadiePay = getRoadiePay(sourceShow);
+    const priceCentsSnapshot =
+      typeof roadiePay === "number" && Number.isFinite(roadiePay)
+        ? Math.max(0, Math.round(roadiePay * 100))
+        : null;
+
+    transaction.set(
+      assignmentRef,
+      {
+        artistId: sourceShow.artistId ?? "",
+        showId,
+        roadieId: user.uid,
+        shiftType,
+        status: "accepted",
+        displayName: user.displayName ?? "",
+        email: user.email ?? "",
+        phone: user.phone ?? "",
+        acceptedAt: serverTimestamp(),
+        shiftStartsAt: getShiftStartsAtSnapshot(sourceShow, shiftType),
+        ...(priceCentsSnapshot != null ? { priceCentsSnapshot } : {}),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    );
+
+    const nextAcceptedCount = acceptedCount + 1;
+    const isNowFull = nextAcceptedCount >= requiredCount;
+
+    transaction.update(showRef, {
+      [roadieApplicantPath]: {
+        uid: user.uid,
+        status: "accepted",
+        displayName: user.displayName ?? "",
+        email: user.email ?? "",
+        phone: user.phone ?? "",
+        shiftType,
+        acceptedAt: serverTimestamp(),
+      },
+      [acceptedCountFieldPath]: increment(1),
+      [shiftStatusFieldPath]: isNowFull ? "FULL" : "OPEN",
+      lastRoadieAcceptedAt: serverTimestamp(),
+      lastRoadieAcceptedUid: user.uid,
+      lastRoadieAcceptedShiftType: shiftType,
+    });
   });
 };
