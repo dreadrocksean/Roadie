@@ -55,9 +55,16 @@ const App = () => {
   }, []);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(FIREBASE_AUTH, async (firebaseUser) => {
+    let isMounted = true;
+    let authEventId = 0;
+
+    const unsubscribe = onAuthStateChanged(FIREBASE_AUTH, (firebaseUser) => {
+      authEventId += 1;
+      const currentEventId = authEventId;
+      const isCurrentEvent = () => isMounted && currentEventId === authEventId;
+
       if (firebaseUser) {
-        let nextUser: UserProfile = {
+        const baseUser: UserProfile = {
           uid: firebaseUser.uid,
           email: firebaseUser.email,
           displayName: firebaseUser.displayName,
@@ -71,41 +78,83 @@ const App = () => {
         };
 
         try {
-          const userProfile = await ensureUserDocument(firebaseUser);
-          nextUser = {
-            ...nextUser,
-            displayName: userProfile?.displayName ?? nextUser.displayName,
-            phone: userProfile?.phone ?? nextUser.phone,
-            bio: userProfile?.bio ?? nextUser.bio,
-            address: userProfile?.address ?? nextUser.address,
-            photoURL: userProfile?.photoURL ?? nextUser.photoURL,
-            roadieId: userProfile?.roadieId ?? null,
-            roadieContractAcceptedAt: userProfile?.roadieContractAcceptedAt ?? null,
-            roadieContractVersion: userProfile?.roadieContractVersion ?? null,
-          };
+          if (isCurrentEvent()) {
+            setUser(baseUser);
+          }
         } catch (error) {
-          logAuthStateError("ensureUserDocument", error, firebaseUser.uid);
+          logAuthStateError("setUser", error, firebaseUser.uid);
         }
 
-        setUser(nextUser);
+        try {
+          if (isCurrentEvent()) {
+            setAuthReady(true);
+          }
+        } catch (error) {
+          logAuthStateError("setAuthReady", error, firebaseUser.uid);
+        }
 
-        try {
-          await registerForPushNotificationsAsync(firebaseUser.uid);
-        } catch (error) {
-          logAuthStateError("registerPush", error, firebaseUser.uid);
-        }
-      } else {
-        try {
-          setUser(null);
-        } catch (error) {
-          logAuthStateError("setUser", error, null);
-        }
+        void (async () => {
+          let nextUser = baseUser;
+
+          try {
+            const userProfile = await ensureUserDocument(firebaseUser);
+            if (!isCurrentEvent()) return;
+
+            nextUser = {
+              ...nextUser,
+              displayName: userProfile?.displayName ?? nextUser.displayName,
+              phone: userProfile?.phone ?? nextUser.phone,
+              bio: userProfile?.bio ?? nextUser.bio,
+              address: userProfile?.address ?? nextUser.address,
+              photoURL: userProfile?.photoURL ?? nextUser.photoURL,
+              roadieId: userProfile?.roadieId ?? null,
+              roadieContractAcceptedAt: userProfile?.roadieContractAcceptedAt ?? null,
+              roadieContractVersion: userProfile?.roadieContractVersion ?? null,
+            };
+
+            try {
+              if (isCurrentEvent()) {
+                setUser(nextUser);
+              }
+            } catch (error) {
+              logAuthStateError("setUser", error, firebaseUser.uid);
+            }
+          } catch (error) {
+            logAuthStateError("ensureUserDocument", error, firebaseUser.uid);
+          }
+
+          try {
+            if (!isCurrentEvent()) return;
+            await registerForPushNotificationsAsync(firebaseUser.uid);
+          } catch (error) {
+            logAuthStateError("registerPush", error, firebaseUser.uid);
+          }
+        })();
+
+        return;
       }
 
-      setAuthReady(true);
+      try {
+        if (isCurrentEvent()) {
+          setUser(null);
+        }
+      } catch (error) {
+        logAuthStateError("setUser", error, null);
+      }
+
+      try {
+        if (isCurrentEvent()) {
+          setAuthReady(true);
+        }
+      } catch (error) {
+        logAuthStateError("setAuthReady", error, null);
+      }
     });
 
-    return unsubscribe;
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, [setAuthReady, setUser]);
 
   useEffect(() => {

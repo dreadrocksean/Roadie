@@ -341,13 +341,16 @@ describe("App", () => {
     });
 
     expect(setUser).toHaveBeenCalledWith(expect.objectContaining({ uid: "u5" }));
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      "[Roadie][onAuthStateChanged.registerPush]",
-      expect.objectContaining({
-        message: "push-registration-failed",
-        uid: "u5",
-      }),
-    );
     expect(setAuthReady).toHaveBeenCalledWith(true);
+
+    await waitFor(() => {
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        "[Roadie][onAuthStateChanged.registerPush]",
+        expect.objectContaining({
+          message: "push-registration-failed",
+          uid: "u5",
+        }),
+      );
+    });
   });
 });

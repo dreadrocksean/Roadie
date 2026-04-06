@@ -147,6 +147,14 @@ const LoginScreen = () => {
   });
 
   const navigateToHome = useCallback(() => {
+    if ("reset" in navigation && typeof navigation.reset === "function") {
+      navigation.reset({
+        index: 0,
+        routes: [{ name: "Tabs", params: { screen: "Map" } }],
+      });
+      return;
+    }
+
     navigation.navigate("Tabs", { screen: "Map" });
   }, [navigation]);
 
